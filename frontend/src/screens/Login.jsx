@@ -1,14 +1,15 @@
 import { useContext, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import axios from "../config/axios";
 import { UserContext } from "../context/user.context";
 import AuthShell from "../components/AuthShell";
 import { apiError } from "../config/apiError";
+import { authRequest } from "../config/authRequest";
 
 const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const { setUser } = useContext(UserContext);
   const navigate = useNavigate();
@@ -19,29 +20,32 @@ const Login = () => {
     }
   }, [navigate]);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    setStatus("");
     setSubmitting(true);
-    axios
-      .post("/users/login", {
-        email,
-        password,
-      })
-      .then((res) => {
-        localStorage.setItem("token", res.data.token);
-        setUser(res.data.user);
-        navigate("/app");
-      })
-      .catch((err) => {
-        setError(
-          apiError(
-            err,
-            "Could not sign in. If the server was sleeping, wait a few seconds and try again."
-          )
-        );
-      })
-      .finally(() => setSubmitting(false));
+    try {
+      const res = await authRequest(
+        "post",
+        "/users/login",
+        { email, password },
+        setStatus
+      );
+      localStorage.setItem("token", res.data.token);
+      setUser(res.data.user);
+      navigate("/app");
+    } catch (err) {
+      setStatus("");
+      setError(
+        apiError(
+          err,
+          "Could not sign in. If the server was sleeping, wait a few seconds and try again."
+        )
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -91,6 +95,11 @@ const Login = () => {
             onChange={(e) => setPassword(e.target.value)}
           />
         </div>
+        {status && !error && (
+          <p className="rounded-xl border border-gold/20 bg-gold/10 px-3 py-2 text-sm text-gold">
+            {status}
+          </p>
+        )}
         {error && (
           <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
             {error}
@@ -101,7 +110,7 @@ const Login = () => {
           disabled={submitting}
           className="w-full rounded-xl bg-gold py-3 text-sm font-semibold text-ink-950 hover:bg-amber-200 disabled:opacity-60"
         >
-          {submitting ? "Signing in…" : "Sign in"}
+          {submitting ? "Please wait…" : "Sign in"}
         </button>
       </form>
     </AuthShell>
