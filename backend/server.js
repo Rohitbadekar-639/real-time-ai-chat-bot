@@ -7,14 +7,19 @@ import mongoose from "mongoose";
 import ProjectModel from "./models/project.model.js";
 import Message from "./models/message.model.js";
 import { generateResult } from "./services/ai.service.js";
-import { allowedOrigins } from "./config/origins.js";
+import { isAllowedOrigin } from "./config/origins.js";
 
 const port = process.env.PORT || 3000;
 
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    origin(origin, callback) {
+      if (isAllowedOrigin(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("Not allowed by CORS"));
+    },
     credentials: true,
     methods: ["GET", "POST"],
   },
