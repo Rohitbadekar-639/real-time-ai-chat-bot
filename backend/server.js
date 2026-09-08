@@ -131,6 +131,17 @@ io.on("connection", async (socket) => {
         message: result,
         sender: aiPayload.sender,
       });
+
+      try {
+        const parsed = JSON.parse(result);
+        if (parsed?.fileTree && typeof parsed.fileTree === "object") {
+          await ProjectModel.findByIdAndUpdate(socket.project._id, {
+            fileTree: parsed.fileTree,
+          });
+        }
+      } catch (persistTreeError) {
+        console.error("Failed to persist file tree:", persistTreeError.message);
+      }
     } catch (error) {
       console.error("AI generation failed:", error.message);
       const aiPayload = {

@@ -53,6 +53,7 @@ const Project = () => {
 
   const [runProcess, setRunProcess] = useState(null);
   const [runHint, setRunHint] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
 
   const handleUserClick = (id) => {
     setSelectedUserId((prevSelectedUserId) => {
@@ -90,7 +91,10 @@ const Project = () => {
       message,
       sender: user,
     });
-    setMessages((prevMessages) => [...prevMessages, { sender: user, message }]); // Update messages state
+    if (message.includes("@ai")) {
+      setAiBusy(true);
+    }
+    setMessages((prevMessages) => [...prevMessages, { sender: user, message }]);
     setMessage("");
   };
 
@@ -147,20 +151,31 @@ const Project = () => {
       console.log(data);
 
       if (data.sender._id == "ai") {
+        setAiBusy(false);
         try {
           const parsed = JSON.parse(data.message);
-          console.log(parsed);
 
           if (parsed.fileTree) {
             webContainerRef.current?.mount(parsed.fileTree);
             setFileTree(parsed.fileTree || {});
+            const firstFile = Object.keys(parsed.fileTree)[0];
+            if (firstFile) {
+              setCurrentFile(firstFile);
+              setOpenFiles((prev) => [...new Set([...prev, firstFile])]);
+            }
+            axios
+              .put("/projects/update-file-tree", {
+                projectId: location.state.project._id,
+                fileTree: parsed.fileTree,
+              })
+              .catch(() => {});
           }
         } catch (err) {
           console.log(err);
         }
-        setMessages((prevMessages) => [...prevMessages, data]); // Update messages state
+        setMessages((prevMessages) => [...prevMessages, data]);
       } else {
-        setMessages((prevMessages) => [...prevMessages, data]); // Update messages state
+        setMessages((prevMessages) => [...prevMessages, data]);
       }
     });
 
@@ -170,7 +185,13 @@ const Project = () => {
         console.log(res.data.project);
 
         setProject(res.data.project);
-        setFileTree(res.data.project.fileTree || {});
+        const tree = res.data.project.fileTree || {};
+        setFileTree(tree);
+        const firstFile = Object.keys(tree)[0];
+        if (firstFile) {
+          setCurrentFile(firstFile);
+          setOpenFiles([firstFile]);
+        }
       });
 
     axios
@@ -266,6 +287,12 @@ const Project = () => {
                 </div>
               </div>
             ))}
+            {aiBusy && (
+              <div className="w-fit max-w-80 rounded-xl border border-tide/20 bg-ink-950 p-2">
+                <small className="text-xs text-zinc-500">AI</small>
+                <p className="text-sm text-tide">Generating a workspace…</p>
+              </div>
+            )}
           </div>
 
           <div className="inputField absolute bottom-0 flex w-full border-t border-white/10">

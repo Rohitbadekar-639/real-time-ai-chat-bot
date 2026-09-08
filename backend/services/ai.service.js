@@ -1,76 +1,92 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 
-const SYSTEM_INSTRUCTION = `You are an expert in MERN and Development. You have an experience of 10 years in the development. You always write code in modular and break the code in the possible way and follow best practices, You use understandable comments in the code, you create files as needed, you write code while maintaining the working of previous code. You always follow the best practices of the development You never miss the edge cases and always write code that is scalable and maintainable, In your code you always handle the errors and exceptions.
-    
-    Examples: 
+const SYSTEM_INSTRUCTION = `You are an expert full-stack engineer inside Nexora, a live coding room.
 
-    <example>
- 
-    response: {
-
-    "text": "this is you fileTree structure of the express server",
-    "fileTree": {
-        "app.js": {
-            file: {
-                contents: "
-                const express = require('express');
-                const app = express();
-                app.get('/', (req, res) => {
-                    res.send('Hello World!');
-                });
-
-                app.listen(3000, () => {
-                    console.log('Server is running on port 3000');
-                })"
-        },
-    },
-
-        "package.json": {
-            file: {
-                contents: "
-                {
-                    "name": "temp-server",
-                    "version": "1.0.0",
-                    "main": "index.js",
-                    "scripts": {
-                        "test": "echo \\"Error: no test specified\\" && exit 1"
-                    },
-                    "keywords": [],
-                    "author": "",
-                    "license": "ISC",
-                    "description": "",
-                    "dependencies": {
-                        "express": "^4.21.2"
-                    }
+Always reply with a single JSON object. No markdown fences. Shape:
+{
+  "text": "short markdown explanation for the chat",
+  "fileTree": {
+    "filename.ext": { "file": { "contents": "full file source" } }
+  },
+  "buildCommand": { "mainItem": "npm", "commands": ["install"] },
+  "startCommand": { "mainItem": "npm", "commands": ["start"] }
 }
-                "
-            },
-        },
-    },
-    "buildCommand": {
-        mainItem: "npm",
-            commands: [ "install" ]
-    },
 
-        "startCommand": {
-        mainItem: "node",
-            commands: [ "app.js" ]
+Rules:
+- fileTree keys must be root-level files only (no nested folders, never routes/index.js).
+- The project must run in a browser WebContainer: Node.js + npm. Prefer Express or a small Node CLI.
+- Always include package.json with "start" script when you generate code.
+- If the user asks for Java, Python, C++, etc., still generate a Node.js program that does the same thing, and mention the mapping in "text". WebContainer cannot compile those languages.
+- Escape JSON strings correctly. Put complete file contents in file.contents.
+- For greetings with no coding request, omit fileTree and only return {"text":"..."}.`;
+
+const GEMINI_MODELS = [
+  ...new Set(
+    [
+      process.env.GEMINI_MODEL,
+      "gemini-2.5-flash",
+      "gemini-2.0-flash",
+      "gemini-2.0-flash-001",
+      "gemini-flash-latest",
+      "gemini-1.5-flash",
+    ].filter(Boolean)
+  ),
+];
+
+function normalizeFileTree(tree) {
+  if (!tree || typeof tree !== "object" || Array.isArray(tree)) {
+    return null;
+  }
+
+  const out = {};
+
+  for (const [name, node] of Object.entries(tree)) {
+    if (!name || name.includes("\\")) continue;
+
+    if (typeof node === "string") {
+      out[name] = { file: { contents: node } };
+      continue;
     }
+
+    if (node?.file?.contents != null) {
+      out[name] = { file: { contents: String(node.file.contents) } };
+      continue;
+    }
+
+    if (node?.contents != null) {
+      out[name] = { file: { contents: String(node.contents) } };
+    }
+  }
+
+  return Object.keys(out).length ? out : null;
 }
 
-    user:Create an express application 
-    </example>
-    
-    <example>
-       user:Hello 
-       response:{
-       "text":"Hello, How can I help you today?"
-       }
-    </example>
-    
- IMPORTANT : don't use file name like routes/index.js
- Always respond with valid JSON only.`;
+function parseModelJson(raw) {
+  let text = String(raw || "").trim();
+  if (text.startsWith("```")) {
+    text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { text: text || "The assistant returned an unreadable response." };
+  }
+
+  const fileTree = normalizeFileTree(parsed.fileTree);
+  return {
+    text: parsed.text || "Generated a workspace for this room.",
+    ...(fileTree ? { fileTree } : {}),
+    ...(parsed.buildCommand ? { buildCommand: parsed.buildCommand } : {}),
+    ...(parsed.startCommand ? { startCommand: parsed.startCommand } : {}),
+  };
+}
+
+function toPayload(raw) {
+  return JSON.stringify(parseModelJson(raw));
+}
 
 async function generateWithOpenAI(prompt) {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -84,13 +100,13 @@ async function generateWithOpenAI(prompt) {
     ],
   });
 
-  return completion.choices[0]?.message?.content || JSON.stringify({ text: "No response from AI." });
+  return toPayload(completion.choices[0]?.message?.content);
 }
 
-async function generateWithGemini(prompt) {
+async function generateWithGemini(prompt, modelName) {
   const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_KEY);
   const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
+    model: modelName,
     generationConfig: {
       responseMimeType: "application/json",
       temperature: 0.4,
@@ -99,7 +115,21 @@ async function generateWithGemini(prompt) {
   });
 
   const result = await model.generateContent(prompt);
-  return result.response.text();
+  return toPayload(result.response.text());
+}
+
+function friendlyAiError(err) {
+  const message = err?.message || String(err);
+  if (/quota|insufficient|billing|429/i.test(message)) {
+    return "The AI provider hit a quota or billing limit. Check the API key plan.";
+  }
+  if (/api key|unauthorized|401|invalid/i.test(message)) {
+    return "The AI API key was rejected. Set OPENAI_API_KEY on the Render service.";
+  }
+  if (/not found|404|not supported/i.test(message)) {
+    return "The AI model is unavailable. The server will try a newer model on the next request.";
+  }
+  return "The AI assistant could not complete that request. Try again in a moment.";
 }
 
 export const generateResult = async (prompt) => {
@@ -107,15 +137,35 @@ export const generateResult = async (prompt) => {
     return JSON.stringify({ text: "Please send a prompt after @ai." });
   }
 
+  const errors = [];
+
   if (process.env.OPENAI_API_KEY) {
-    return generateWithOpenAI(prompt);
+    try {
+      return await generateWithOpenAI(prompt);
+    } catch (error) {
+      console.error("OpenAI generation failed:", error.message);
+      errors.push(error);
+    }
   }
 
   if (process.env.GOOGLE_AI_KEY) {
-    return generateWithGemini(prompt);
+    for (const modelName of GEMINI_MODELS) {
+      try {
+        return await generateWithGemini(prompt, modelName);
+      } catch (error) {
+        console.error(`Gemini ${modelName} failed:`, error.message);
+        errors.push(error);
+      }
+    }
+  }
+
+  if (!process.env.OPENAI_API_KEY && !process.env.GOOGLE_AI_KEY) {
+    return JSON.stringify({
+      text: "AI is not configured yet. Add OPENAI_API_KEY on the Render service (Environment), then restart it.",
+    });
   }
 
   return JSON.stringify({
-    text: "AI is not configured yet. Add OPENAI_API_KEY on the server.",
+    text: friendlyAiError(errors[errors.length - 1]),
   });
 };
