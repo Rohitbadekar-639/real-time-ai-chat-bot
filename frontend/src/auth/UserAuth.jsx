@@ -10,6 +10,7 @@ const UserAuth = ({ children }) => {
 
   useEffect(() => {
     const token = localStorage.getItem("token");
+    let cancelled = false;
 
     if (!token) {
       setLoading(false);
@@ -22,18 +23,35 @@ const UserAuth = ({ children }) => {
       return;
     }
 
-    axios
-      .get("/users/profile")
-      .then((res) => {
-        setUser(res.data.user);
-        setLoading(false);
-      })
-      .catch(() => {
-        localStorage.removeItem("token");
-        setUser(null);
-        setLoading(false);
-        navigate("/login");
-      });
+    async function loadProfile() {
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        try {
+          const res = await axios.get("/users/profile");
+          if (!cancelled) {
+            setUser(res.data.user);
+            setLoading(false);
+          }
+          return;
+        } catch (err) {
+          if (err.response?.status === 401) {
+            localStorage.removeItem("token");
+            if (!cancelled) {
+              setUser(null);
+              setLoading(false);
+              navigate("/login");
+            }
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 2000 * (attempt + 1)));
+        }
+      }
+      if (!cancelled) setLoading(false);
+    }
+
+    loadProfile();
+    return () => {
+      cancelled = true;
+    };
   }, [user, setUser, navigate]);
 
   if (loading) {
@@ -48,7 +66,19 @@ const UserAuth = ({ children }) => {
   }
 
   if (!user) {
-    return null;
+    return (
+      <div className="grid min-h-screen place-items-center bg-ink-950 px-6 text-center text-zinc-400">
+        <div>
+          <p className="text-sm">The API is still waking up.</p>
+          <button
+            className="mt-4 rounded-full bg-gold px-4 py-2 text-sm font-semibold text-ink-950"
+            onClick={() => window.location.reload()}
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return <>{children}</>;
