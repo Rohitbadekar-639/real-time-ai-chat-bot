@@ -1,4 +1,3 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 
 const SYSTEM_INSTRUCTION = `You are an expert full-stack engineer inside Nexora, a live coding room.
@@ -103,19 +102,75 @@ async function generateWithOpenAI(prompt) {
   return toPayload(completion.choices[0]?.message?.content);
 }
 
-async function generateWithGemini(prompt, modelName) {
-  const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_KEY);
-  const model = genAI.getGenerativeModel({
-    model: modelName,
-    generationConfig: {
-      responseMimeType: "application/json",
-      temperature: 0.4,
-    },
-    systemInstruction: SYSTEM_INSTRUCTION,
-  });
+async function listGeminiModels(apiKey) {
+  const urls = [
+    `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1/models?key=${apiKey}`,
+  ];
 
-  const result = await model.generateContent(prompt);
-  return toPayload(result.response.text());
+  for (const url of urls) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) continue;
+      const data = await response.json();
+      const names = (data.models || [])
+        .filter((model) =>
+          (model.supportedGenerationMethods || []).includes("generateContent")
+        )
+        .map((model) => String(model.name || "").replace(/^models\//, ""))
+        .filter(Boolean);
+      if (names.length) return names;
+    } catch (error) {
+      console.error("Gemini list models failed:", error.message);
+    }
+  }
+
+  return [];
+}
+
+function pickGeminiModels(available) {
+  const preferred = GEMINI_MODELS.filter((name) => available.includes(name));
+  const flash = available.filter((name) => /flash/i.test(name) && !preferred.includes(name));
+  const rest = available.filter((name) => !preferred.includes(name) && !flash.includes(name));
+  return [...new Set([...preferred, ...flash, ...rest])];
+}
+
+async function generateWithGemini(prompt, modelName, apiKey) {
+  const body = {
+    systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature: 0.4,
+      responseMimeType: "application/json",
+    },
+  };
+
+  const urls = [
+    `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1/models/${modelName}:generateContent?key=${apiKey}`,
+  ];
+
+  let lastError = new Error(`Gemini model ${modelName} failed`);
+
+  for (const url of urls) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      lastError = new Error(data?.error?.message || `Gemini ${modelName} HTTP ${response.status}`);
+      continue;
+    }
+    const text = data?.candidates?.[0]?.content?.parts
+      ?.map((part) => part.text || "")
+      .join("");
+    if (text) return toPayload(text);
+    lastError = new Error(`Gemini ${modelName} returned an empty response`);
+  }
+
+  throw lastError;
 }
 
 function friendlyAiError(err) {
@@ -149,9 +204,21 @@ export const generateResult = async (prompt) => {
   }
 
   if (process.env.GOOGLE_AI_KEY) {
-    for (const modelName of GEMINI_MODELS) {
+    const apiKey = process.env.GOOGLE_AI_KEY;
+    let modelNames = GEMINI_MODELS;
+    try {
+      const available = await listGeminiModels(apiKey);
+      if (available.length) {
+        modelNames = pickGeminiModels(available);
+        console.log("Gemini models available:", modelNames.slice(0, 8).join(", "));
+      }
+    } catch (error) {
+      console.error("Could not list Gemini models:", error.message);
+    }
+
+    for (const modelName of modelNames.slice(0, 6)) {
       try {
-        return await generateWithGemini(prompt, modelName);
+        return await generateWithGemini(prompt, modelName, apiKey);
       } catch (error) {
         console.error(`Gemini ${modelName} failed:`, error.message);
         errors.push(error);
@@ -166,6 +233,8 @@ export const generateResult = async (prompt) => {
   }
 
   return JSON.stringify({
-    text: friendlyAiError(errors[errors.length - 1]),
+    text: process.env.OPENAI_API_KEY
+      ? friendlyAiError(errors[errors.length - 1])
+      : "The old Gemini model is retired. Add OPENAI_API_KEY in Render → Environment, save, wait for the service to restart, then send @ai again.",
   });
 };
