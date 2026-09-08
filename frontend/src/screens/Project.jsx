@@ -15,6 +15,7 @@ import { getWebContainer } from "../config/webContainer";
 import Brand from "../components/Brand";
 import StatusPill from "../components/StatusPill";
 import { STARTERS } from "../data/starters";
+import { roomKind, roomTitle } from "../config/rooms";
 
 function SyntaxHighlightedCode(props) {
   const ref = useRef(null);
@@ -76,6 +77,10 @@ const Project = () => {
   const [running, setRunning] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [showPreview, setShowPreview] = useState(true);
+  const [onlineUsers, setOnlineUsers] = useState([]);
+  const [typingUsers, setTypingUsers] = useState([]);
+  const typingTimer = useRef(null);
+  const applyingRemoteTree = useRef(false);
 
   const hasFiles = Object.keys(fileTree).length > 0;
 
@@ -107,6 +112,21 @@ const Project = () => {
       });
   }
 
+  function applyFileTree(tree, { persistRemote = false } = {}) {
+    if (!tree || typeof tree !== "object") return;
+    applyingRemoteTree.current = persistRemote;
+    setFileTree(tree);
+    webContainerRef.current?.mount(tree);
+    const preferred =
+      Object.keys(tree).find((name) =>
+        /server\.js|app\.js|index\.js|index\.html/i.test(name)
+      ) || Object.keys(tree)[0];
+    if (preferred) {
+      setCurrentFile(preferred);
+      setOpenFiles((prev) => [...new Set([...prev, preferred])]);
+    }
+  }
+
   function sendPrompt(text) {
     const next = String(text || "").trim();
     if (!next) return;
@@ -118,6 +138,7 @@ const Project = () => {
       setAiBusy(true);
     }
     setMessages((prevMessages) => [...prevMessages, { sender: user, message: next }]);
+    sendMessage("typing", { typing: false });
   }
 
   const send = () => {
@@ -238,6 +259,29 @@ const Project = () => {
         });
     }
 
+    receiveMessage("room-presence", (members) => {
+      if (Array.isArray(members)) setOnlineUsers(members);
+    });
+
+    receiveMessage("typing", (payload) => {
+      const email = payload?.email;
+      if (!email || email === user?.email) return;
+      setTypingUsers((prev) => {
+        const next = new Set(prev);
+        if (payload.typing) next.add(email);
+        else next.delete(email);
+        return [...next];
+      });
+    });
+
+    receiveMessage("file-tree-update", (payload) => {
+      if (!payload?.fileTree) return;
+      if (String(payload.sender?._id) === String(user?._id)) return;
+      applyFileTree(payload.fileTree, { persistRemote: true });
+      const who = payload.sender?._id === "ai" ? "AI" : payload.sender?.email || "A teammate";
+      setRunHint(`${who} updated the shared files.`);
+    });
+
     receiveMessage("message-history", (history) => {
       if (Array.isArray(history)) {
         setMessages(history);
@@ -251,17 +295,8 @@ const Project = () => {
           const parsed = JSON.parse(data.message);
 
           if (parsed.fileTree) {
-            webContainerRef.current?.mount(parsed.fileTree);
-            setFileTree(parsed.fileTree || {});
-            const preferred =
-              Object.keys(parsed.fileTree).find((name) =>
-                /server\.js|app\.js|index\.js|index\.html/i.test(name)
-              ) || Object.keys(parsed.fileTree)[0];
-            if (preferred) {
-              setCurrentFile(preferred);
-              setOpenFiles((prev) => [...new Set([...prev, preferred])]);
-            }
-            setRunHint("Files ready. Click Run to start this app in the browser.");
+            applyFileTree(parsed.fileTree);
+            setRunHint("Files ready. Everyone in this chat can see them. Click Run.");
             axios
               .put("/projects/update-file-tree", {
                 projectId: location.state.project._id,
@@ -326,6 +361,10 @@ const Project = () => {
       .catch((err) => {
         console.log(err);
       });
+    if (!applyingRemoteTree.current) {
+      sendMessage("file-tree-update", { fileTree: ft });
+    }
+    applyingRemoteTree.current = false;
   }
 
   if (!project) {
@@ -344,9 +383,18 @@ const Project = () => {
             <Brand compact />
           </button>
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold capitalize">{project.name}</p>
+            <p className="truncate text-sm font-semibold">
+              {roomTitle(project, user?.email)}
+            </p>
             <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-              Live coding room
+              {roomKind(project) === "direct"
+                ? "Direct chat"
+                : roomKind(project) === "solo"
+                  ? "Solo workspace"
+                  : "Group room"}
+              {onlineUsers.length
+                ? ` · ${onlineUsers.length} online`
+                : ""}
             </p>
           </div>
         </div>
@@ -377,10 +425,10 @@ const Project = () => {
         <section className="relative flex h-full w-[22rem] shrink-0 flex-col border-r border-white/10 bg-ink-800">
           <div className="border-b border-white/10 px-4 py-3">
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gold">
-              Room chat
+              Live chat
             </p>
             <p className="mt-1 text-xs text-zinc-500">
-              Talk with collaborators, or generate files with @ai.
+              Instant messages with everyone here. Files on the right stay in sync.
             </p>
           </div>
           <div
@@ -391,9 +439,9 @@ const Project = () => {
               <div className="rounded-2xl border border-white/10 bg-ink-950 p-4">
                 <p className="text-sm font-semibold">What to do in this room</p>
                 <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs leading-5 text-zinc-400">
-                  <li>Click a starter below or type @ai …</li>
-                  <li>Wait for files to appear on the right</li>
-                  <li>Press Run to preview in the browser</li>
+                  <li>Chat here like WhatsApp — others in the room see it instantly</li>
+                  <li>Click a starter or type @ai to generate shared files</li>
+                  <li>Edit code together, then press Run</li>
                 </ol>
               </div>
             )}
@@ -428,6 +476,11 @@ const Project = () => {
                 <p className="mt-1 text-sm text-tide">Generating a workspace…</p>
               </div>
             )}
+            {typingUsers.length > 0 && (
+              <p className="px-1 text-xs text-zinc-500">
+                {typingUsers.join(", ")} typing…
+              </p>
+            )}
           </div>
 
           <div className="border-t border-white/10 p-3">
@@ -446,7 +499,14 @@ const Project = () => {
             <div className="flex overflow-hidden rounded-xl border border-white/10">
               <input
                 value={message}
-                onChange={(e) => setMessage(e.target.value)}
+                onChange={(e) => {
+                  setMessage(e.target.value);
+                  sendMessage("typing", { typing: true });
+                  if (typingTimer.current) clearTimeout(typingTimer.current);
+                  typingTimer.current = setTimeout(() => {
+                    sendMessage("typing", { typing: false });
+                  }, 1200);
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     send();
@@ -454,7 +514,7 @@ const Project = () => {
                 }}
                 className="flex-grow bg-ink-900 px-3 py-2.5 text-sm outline-none placeholder:text-zinc-500"
                 type="text"
-                placeholder="Message the room · @ai to generate"
+                placeholder="Message this chat · @ai to generate code"
               />
               <button onClick={send} className="bg-gold px-4 text-ink-950">
                 <i className="ri-send-plane-fill"></i>
@@ -484,6 +544,15 @@ const Project = () => {
                       <i className="ri-user-fill"></i>
                     </div>
                     <p className="text-sm">{collaborator.email}</p>
+                    {onlineUsers.some(
+                      (member) =>
+                        member.email === collaborator.email ||
+                        String(member._id) === String(collaborator._id)
+                    ) && (
+                      <span className="ml-auto text-[10px] uppercase tracking-[0.14em] text-tide">
+                        Online
+                      </span>
+                    )}
                   </div>
                 ))}
             </div>

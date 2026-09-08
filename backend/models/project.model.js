@@ -19,6 +19,12 @@ const projectSchema = new mongoose.Schema({
     type: Object,
     default: {},
   },
+  pairKey: {
+    type: String,
+    unique: true,
+    sparse: true,
+    index: true,
+  },
 });
 
 const Project = mongoose.model("project", projectSchema);

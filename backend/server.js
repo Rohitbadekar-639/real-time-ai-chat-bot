@@ -51,6 +51,13 @@ io.use(async (socket, next) => {
       return next(new Error("Authentication error"));
     }
 
+    const isMember = socket.project.users.some(
+      (id) => String(id) === String(decoded._id)
+    );
+    if (!isMember) {
+      return next(new Error("Not a collaborator"));
+    }
+
     socket.user = decoded;
     next();
   } catch (error) {
@@ -73,10 +80,56 @@ async function persistMessage({ projectId, message, sender }) {
   }
 }
 
+const roomPresence = new Map();
+
+function addPresence(roomId, user) {
+  if (!roomPresence.has(roomId)) {
+    roomPresence.set(roomId, new Map());
+  }
+  const room = roomPresence.get(roomId);
+  const key = String(user._id);
+  const current = room.get(key) || {
+    _id: key,
+    email: user.email,
+    count: 0,
+  };
+  current.count += 1;
+  current.email = user.email;
+  room.set(key, current);
+}
+
+function removePresence(roomId, userId) {
+  const room = roomPresence.get(roomId);
+  if (!room) return;
+  const key = String(userId);
+  const current = room.get(key);
+  if (!current) return;
+  current.count -= 1;
+  if (current.count <= 0) {
+    room.delete(key);
+  }
+  if (room.size === 0) {
+    roomPresence.delete(roomId);
+  }
+}
+
+function listPresence(roomId) {
+  return [...(roomPresence.get(roomId)?.values() || [])].map(({ _id, email }) => ({
+    _id,
+    email,
+  }));
+}
+
+function emitPresence(roomId) {
+  io.to(roomId).emit("room-presence", listPresence(roomId));
+}
+
 io.on("connection", async (socket) => {
   socket.roomId = socket.project._id.toString();
   console.log("a user connected");
   socket.join(socket.roomId);
+  addPresence(socket.roomId, socket.user);
+  emitPresence(socket.roomId);
 
   try {
     const history = await Message.find({ project: socket.project._id })
@@ -87,6 +140,33 @@ io.on("connection", async (socket) => {
   } catch (error) {
     console.error("Failed to load message history:", error.message);
   }
+
+  socket.on("typing", (data) => {
+    socket.broadcast.to(socket.roomId).emit("typing", {
+      email: socket.user.email,
+      _id: socket.user._id,
+      typing: Boolean(data?.typing),
+    });
+  });
+
+  socket.on("file-tree-update", async (data) => {
+    const fileTree = data?.fileTree;
+    if (!fileTree || typeof fileTree !== "object") {
+      return;
+    }
+    try {
+      await ProjectModel.findByIdAndUpdate(socket.project._id, { fileTree });
+      socket.broadcast.to(socket.roomId).emit("file-tree-update", {
+        fileTree,
+        sender: {
+          _id: socket.user._id,
+          email: socket.user.email,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to sync file tree:", error.message);
+    }
+  });
 
   socket.on("project-message", async (data) => {
     const message = data?.message;
@@ -138,6 +218,10 @@ io.on("connection", async (socket) => {
           await ProjectModel.findByIdAndUpdate(socket.project._id, {
             fileTree: parsed.fileTree,
           });
+          io.to(socket.roomId).emit("file-tree-update", {
+            fileTree: parsed.fileTree,
+            sender: { _id: "ai", email: "AI" },
+          });
         }
       } catch (persistTreeError) {
         console.error("Failed to persist file tree:", persistTreeError.message);
@@ -159,6 +243,8 @@ io.on("connection", async (socket) => {
 
   socket.on("disconnect", () => {
     console.log("user disconnected");
+    removePresence(socket.roomId, socket.user?._id);
+    emitPresence(socket.roomId);
     socket.leave(socket.roomId);
   });
 });

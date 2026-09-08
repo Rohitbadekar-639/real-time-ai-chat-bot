@@ -17,6 +17,13 @@ router.post(
 
 router.get("/all", authMiddleware.authUser, projectController.getAllProject);
 
+router.post(
+  "/direct",
+  authMiddleware.authUser,
+  body("userId").isString().withMessage("userId is required"),
+  projectController.openDirectChat
+);
+
 router.put(
   "/add-user",
   authMiddleware.authUser,

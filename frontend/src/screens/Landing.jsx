@@ -67,9 +67,10 @@ export default function Landing() {
                 Pair with your team and AI in one live workspace.
               </h1>
               <p className="mt-5 max-w-xl text-base leading-7 text-zinc-400 sm:text-lg">
-                Nexora is a MERN product: shared rooms, Socket.IO chat,{" "}
-                <span className="text-gold">@ai</span> that generates a file tree,
-                an editor, and in-browser Node via WebContainers.
+                Nexora is a MERN product: WhatsApp-style rooms (solo, 1:1, or group),
+                live chat, a shared file workspace,{" "}
+                <span className="text-gold">@ai</span> that generates code, and
+                in-browser Node via WebContainers.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <Link

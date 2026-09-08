@@ -26,7 +26,7 @@ export const CAPABILITIES = [
   {
     icon: "ri-chat-smile-3-line",
     title: "Live room chat",
-    body: "Socket.IO keeps everyone in the same conversation. Messages persist in MongoDB.",
+    body: "Socket.IO chat like WhatsApp: solo, 1:1, or a group. Messages persist.",
   },
   {
     icon: "ri-sparkling-2-line",

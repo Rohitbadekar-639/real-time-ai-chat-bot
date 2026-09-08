@@ -29,10 +29,43 @@ export const getAllProjectsByUserId = async ({ userId }) => {
   if (!userId) {
     throw new Error("User is required");
   }
-  const allUserProjects = await projectModel.find({
-    users: userId,
-  });
+  const allUserProjects = await projectModel
+    .find({
+      users: userId,
+    })
+    .populate("users", "email");
   return allUserProjects;
+};
+
+export const openDirectProject = async ({ userId, otherUserId }) => {
+  if (!userId || !otherUserId) {
+    throw new Error("Both users are required");
+  }
+  if (String(userId) === String(otherUserId)) {
+    throw new Error("Pick someone else for a direct chat");
+  }
+
+  const pairKey = [String(userId), String(otherUserId)].sort().join(":");
+  const existing = await projectModel
+    .findOne({ pairKey })
+    .populate("users", "email");
+  if (existing) {
+    return existing;
+  }
+
+  try {
+    const created = await projectModel.create({
+      name: `dm-${pairKey.replace(/:/g, "-")}`,
+      users: [userId, otherUserId],
+      pairKey,
+    });
+    return projectModel.findById(created._id).populate("users", "email");
+  } catch (error) {
+    if (error.code === 11000) {
+      return projectModel.findOne({ pairKey }).populate("users", "email");
+    }
+    throw error;
+  }
 };
 
 export const updateFileTree = async ({ projectId, fileTree, userId }) => {

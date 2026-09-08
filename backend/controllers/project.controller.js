@@ -20,6 +20,24 @@ export const createProject = async (req, res) => {
   }
 };
 
+export const openDirectChat = async (req, res) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) {
+      return res.status(400).json({ error: "userId is required" });
+    }
+    const loggedInUser = await userModel.findOne({ email: req.user.email });
+    const project = await projectService.openDirectProject({
+      userId: loggedInUser._id,
+      otherUserId: userId,
+    });
+    return res.status(200).json(project);
+  } catch (err) {
+    console.log(err);
+    res.status(400).json({ error: err.message });
+  }
+};
+
 export const getAllProject = async (req, res) => {
   try {
     const loggedInUser = await userModel.findOne({ email: req.user.email });

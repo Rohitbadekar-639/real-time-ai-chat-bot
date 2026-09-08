@@ -6,12 +6,15 @@ import Brand from "../components/Brand";
 import StatusPill from "../components/StatusPill";
 import { apiError } from "../config/apiError";
 import { CAPABILITIES } from "../data/starters";
+import { roomKind, roomSubtitle, roomTitle } from "../config/rooms";
 
 const Home = () => {
   const { user, setUser } = useContext(UserContext);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDirectOpen, setIsDirectOpen] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [project, setProject] = useState([]);
+  const [people, setPeople] = useState([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -43,6 +46,19 @@ const Home = () => {
       });
   }
 
+  function openDirect(otherUserId) {
+    setError("");
+    axios
+      .post("/projects/direct", { userId: otherUserId })
+      .then((res) => {
+        setIsDirectOpen(false);
+        navigate(`/project`, { state: { project: res.data } });
+      })
+      .catch((err) => {
+        setError(apiError(err, "Could not open that chat."));
+      });
+  }
+
   useEffect(() => {
     axios
       .get("/projects/all")
@@ -50,9 +66,14 @@ const Home = () => {
         setProject(res.data.projects || []);
       })
       .catch((err) => {
-        setError(apiError(err, "Could not load rooms. The API may still be waking up."));
+        setError(apiError(err, "Could not load chats. The API may still be waking up."));
       })
       .finally(() => setLoading(false));
+
+    axios
+      .get("/users/all")
+      .then((res) => setPeople(res.data.users || []))
+      .catch(() => {});
   }, []);
 
   return (
@@ -75,20 +96,28 @@ const Home = () => {
         <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-gold">
-              Workspace
+              Inbox
             </p>
-            <h1 className="font-display mt-2 text-3xl font-bold">Your rooms</h1>
+            <h1 className="font-display mt-2 text-3xl font-bold">Chats & rooms</h1>
             <p className="mt-2 max-w-xl text-sm text-zinc-400">
-              Each room is a live chat, an AI file generator, and an in-browser
-              Node runner. Open one or start a new collaboration.
+              WhatsApp-style conversations plus a shared VS Code-style workspace.
+              Solo, one-to-one, or a group — everyone in the room sees chat and code live.
             </p>
           </div>
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="rounded-full bg-gold px-5 py-2.5 text-sm font-semibold text-ink-950 hover:bg-amber-200"
-          >
-            New room
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setIsDirectOpen(true)}
+              className="rounded-full border border-white/15 px-5 py-2.5 text-sm font-semibold text-white hover:bg-white/5"
+            >
+              Message someone
+            </button>
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="rounded-full bg-gold px-5 py-2.5 text-sm font-semibold text-ink-950 hover:bg-amber-200"
+            >
+              New group room
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -99,10 +128,10 @@ const Home = () => {
 
         {!loading && project.length === 0 && (
           <div className="mb-8 rounded-3xl border border-white/10 bg-ink-800/70 p-6">
-            <p className="text-sm font-semibold text-white">Start here in 30 seconds</p>
+            <p className="text-sm font-semibold text-white">How this works</p>
             <p className="mt-1 text-sm text-zinc-400">
-              Create a room, click a starter prompt, then press Run. That shows
-              recruiters the whole product.
+              Message a person for a 1:1 thread, or create a named group. Inside,
+              chat instantly and share the same files. @ai can generate a runnable app.
             </p>
             <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {CAPABILITIES.map((item) => (
@@ -117,44 +146,40 @@ const Home = () => {
         )}
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="rounded-2xl border border-dashed border-gold/40 bg-gold/5 p-6 text-left transition hover:bg-gold/10"
-          >
-            <i className="ri-add-line text-xl text-gold"></i>
-            <p className="mt-3 font-semibold">New room</p>
-            <p className="mt-1 text-xs text-zinc-400">Name a workspace and invite people later</p>
-          </button>
           {loading && (
             <div className="rounded-2xl border border-white/10 p-6 text-sm text-zinc-500">
-              Loading rooms…
+              Loading conversations…
             </div>
           )}
-          {project.map((item) => (
-            <button
-              key={item._id}
-              onClick={() => {
-                navigate(`/project`, { state: { project: item } });
-              }}
-              className="rounded-2xl border border-white/10 bg-ink-800 p-6 text-left transition hover:border-gold/40 hover:bg-ink-700"
-            >
-              <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Room</p>
-              <h2 className="mt-2 font-semibold capitalize">{item.name}</h2>
-              <div className="mt-3 flex items-center gap-2 text-sm text-zinc-400">
-                <i className="ri-user-line"></i>
-                {item.users?.length || 0} collaborator{(item.users?.length || 0) === 1 ? "" : "s"}
-              </div>
-            </button>
-          ))}
+          {project.map((item) => {
+            const kind = roomKind(item);
+            const title = roomTitle(item, user?.email);
+            const count = item.users?.length || 0;
+            return (
+              <button
+                key={item._id}
+                onClick={() => {
+                  navigate(`/project`, { state: { project: item } });
+                }}
+                className="rounded-2xl border border-white/10 bg-ink-800 p-6 text-left transition hover:border-gold/40 hover:bg-ink-700"
+              >
+                <p className="text-[10px] uppercase tracking-[0.2em] text-gold">
+                  {kind === "direct" ? "Direct" : kind === "solo" ? "Solo" : "Group"}
+                </p>
+                <h2 className="mt-2 truncate font-semibold">{title}</h2>
+                <p className="mt-2 text-xs text-zinc-400">{roomSubtitle(kind, count)}</p>
+              </button>
+            );
+          })}
         </div>
       </section>
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-ink-800 p-6 shadow-2xl">
-            <h2 className="font-display text-xl font-semibold">Create a new room</h2>
+            <h2 className="font-display text-xl font-semibold">New group room</h2>
             <p className="mt-1 text-sm text-zinc-400">
-              Use a short name like todo-demo or interview-prep.
+              Start solo, then invite people. Chat and files are shared with everyone in the room.
             </p>
             <form onSubmit={createProject} className="mt-4">
               <label htmlFor="projectName" className="block text-sm text-zinc-400">
@@ -184,6 +209,45 @@ const Home = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {isDirectOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-ink-800 p-6 shadow-2xl">
+            <h2 className="font-display text-xl font-semibold">Message someone</h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              Opens a one-to-one thread. Both of you can chat and edit the same files.
+            </p>
+            <div className="mt-4 max-h-80 space-y-1 overflow-auto">
+              {people.map((person) => (
+                <button
+                  key={person._id}
+                  onClick={() => openDirect(person._id)}
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-ink-700"
+                >
+                  <span className="grid h-9 w-9 place-items-center rounded-full bg-ink-700 text-gold">
+                    <i className="ri-user-line" />
+                  </span>
+                  <span className="text-sm">{person.email}</span>
+                </button>
+              ))}
+              {people.length === 0 && (
+                <p className="px-1 text-sm text-zinc-500">
+                  No other accounts yet. Ask someone to register, then message them here.
+                </p>
+              )}
+            </div>
+            <div className="mt-4 text-right">
+              <button
+                type="button"
+                onClick={() => setIsDirectOpen(false)}
+                className="rounded-xl bg-white/10 px-4 py-2 text-sm text-zinc-200 hover:bg-white/15"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
