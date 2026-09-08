@@ -61,6 +61,8 @@ const Project = () => {
   const logBox = useRef(null);
 
   const [users, setUsers] = useState([]);
+  const [userQuery, setUserQuery] = useState("");
+  const [loadingUsers, setLoadingUsers] = useState(false);
   const [messages, setMessages] = useState([]);
   const [fileTree, setFileTree] = useState({});
 
@@ -95,6 +97,26 @@ const Project = () => {
       return newSelectedUserId;
     });
   };
+
+  function loadUsers() {
+    setLoadingUsers(true);
+    axios
+      .get("/users/all")
+      .then((res) => {
+        setUsers(res.data.users || []);
+      })
+      .catch((err) => {
+        console.log(err);
+      })
+      .finally(() => setLoadingUsers(false));
+  }
+
+  function openInvite() {
+    setSelectedUserId(new Set());
+    setUserQuery("");
+    setIsModalOpen(true);
+    loadUsers();
+  }
 
   function addCollaborators() {
     axios
@@ -326,19 +348,22 @@ const Project = () => {
         }
       });
 
-    axios
-      .get("/users/all")
-      .then((res) => {
-        setUsers(res.data.users);
-      })
-      .catch((err) => {
-        console.log(err);
-      });
+    loadUsers();
+    const onFocus = () => loadUsers();
+    window.addEventListener("focus", onFocus);
 
     return () => {
+      window.removeEventListener("focus", onFocus);
       disconnectSocket();
     };
   }, []);
+
+  useEffect(() => {
+    if (!isModalOpen) return undefined;
+    loadUsers();
+    const tick = setInterval(loadUsers, 4000);
+    return () => clearInterval(tick);
+  }, [isModalOpen]);
 
   useEffect(() => {
     if (messageBox.current) {
@@ -402,7 +427,7 @@ const Project = () => {
           <StatusPill />
           <button
             className="hidden rounded-full border border-white/10 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/5 sm:inline"
-            onClick={() => setIsModalOpen(true)}
+            onClick={openInvite}
           >
             Invite
           </button>
@@ -751,26 +776,66 @@ const Project = () => {
               </button>
             </header>
             <p className="mb-3 text-xs text-zinc-400">
-              Add an existing Nexora account. They will see this room in their workspace.
+              Newest accounts show first. Search if the list is long.
             </p>
+            <input
+              value={userQuery}
+              onChange={(e) => setUserQuery(e.target.value)}
+              placeholder="Search email"
+              className="mb-3 w-full rounded-xl border border-white/10 bg-ink-950 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gold/40"
+            />
             <div className="users-list mb-16 flex max-h-96 flex-col gap-2 overflow-auto">
-              {users.map((listedUser) => (
-                <div
-                  key={listedUser._id}
-                  className={`flex cursor-pointer items-center gap-2 rounded-xl p-2 hover:bg-ink-700 ${
-                    Array.from(selectedUserId).indexOf(listedUser._id) != -1
-                      ? "bg-ink-700"
-                      : ""
-                  }`}
-                  onClick={() => handleUserClick(listedUser._id)}
-                >
-                  <div className="grid h-9 w-9 place-items-center rounded-full bg-ink-700 text-gold">
-                    <i className="ri-user-fill"></i>
-                  </div>
-                  <h1 className="text-sm font-semibold">{listedUser.email}</h1>
-                </div>
-              ))}
-              {users.length === 0 && (
+              {loadingUsers && (
+                <p className="px-2 text-sm text-zinc-500">Refreshing users…</p>
+              )}
+              {users
+                .filter((listedUser) => {
+                  if (listedUser.email === user?.email) return false;
+                  if (String(listedUser._id) === String(user?._id)) return false;
+                  if (
+                    userQuery &&
+                    !String(listedUser.email || "")
+                      .toLowerCase()
+                      .includes(userQuery.toLowerCase())
+                  ) {
+                    return false;
+                  }
+                  return true;
+                })
+                .map((listedUser) => {
+                  const alreadyIn = (project.users || []).some(
+                    (member) =>
+                      String(member._id) === String(listedUser._id) ||
+                      member.email === listedUser.email
+                  );
+                  const selected = [...selectedUserId].some(
+                    (id) => String(id) === String(listedUser._id)
+                  );
+                  return (
+                    <div
+                      key={listedUser._id}
+                      className={`flex cursor-pointer items-center gap-2 rounded-xl p-2 hover:bg-ink-700 ${
+                        selected ? "bg-ink-700" : ""
+                      } ${alreadyIn ? "opacity-50" : ""}`}
+                      onClick={() => {
+                        if (!alreadyIn) handleUserClick(listedUser._id);
+                      }}
+                    >
+                      <div className="grid h-9 w-9 place-items-center rounded-full bg-ink-700 text-gold">
+                        <i className="ri-user-fill"></i>
+                      </div>
+                      <div className="min-w-0">
+                        <h1 className="truncate text-sm font-semibold">{listedUser.email}</h1>
+                        {alreadyIn && (
+                          <p className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                            Already in this room
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              {!loadingUsers && users.length === 0 && (
                 <p className="px-2 text-sm text-zinc-500">No other users yet.</p>
               )}
             </div>

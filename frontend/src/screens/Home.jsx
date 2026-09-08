@@ -15,6 +15,8 @@ const Home = () => {
   const [projectName, setProjectName] = useState("");
   const [project, setProject] = useState([]);
   const [people, setPeople] = useState([]);
+  const [peopleQuery, setPeopleQuery] = useState("");
+  const [loadingPeople, setLoadingPeople] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -46,6 +48,21 @@ const Home = () => {
       });
   }
 
+  function loadPeople() {
+    setLoadingPeople(true);
+    axios
+      .get("/users/all")
+      .then((res) => setPeople(res.data.users || []))
+      .catch(() => {})
+      .finally(() => setLoadingPeople(false));
+  }
+
+  function openDirectPicker() {
+    setPeopleQuery("");
+    setIsDirectOpen(true);
+    loadPeople();
+  }
+
   function openDirect(otherUserId) {
     setError("");
     axios
@@ -70,11 +87,18 @@ const Home = () => {
       })
       .finally(() => setLoading(false));
 
-    axios
-      .get("/users/all")
-      .then((res) => setPeople(res.data.users || []))
-      .catch(() => {});
+    loadPeople();
+    const onFocus = () => loadPeople();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, []);
+
+  useEffect(() => {
+    if (!isDirectOpen) return undefined;
+    loadPeople();
+    const tick = setInterval(loadPeople, 4000);
+    return () => clearInterval(tick);
+  }, [isDirectOpen]);
 
   return (
     <main className="min-h-screen bg-ink-950 grain text-zinc-100">
@@ -106,7 +130,7 @@ const Home = () => {
           </div>
           <div className="flex flex-wrap gap-2">
             <button
-              onClick={() => setIsDirectOpen(true)}
+              onClick={openDirectPicker}
               className="rounded-full border border-white/15 px-5 py-2.5 text-sm font-semibold text-white hover:bg-white/5"
             >
               Message someone
@@ -218,10 +242,33 @@ const Home = () => {
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-ink-800 p-6 shadow-2xl">
             <h2 className="font-display text-xl font-semibold">Message someone</h2>
             <p className="mt-1 text-sm text-zinc-400">
-              Opens a one-to-one thread. Both of you can chat and edit the same files.
+              Newest accounts show first. Search if the list is long.
             </p>
-            <div className="mt-4 max-h-80 space-y-1 overflow-auto">
-              {people.map((person) => (
+            <input
+              value={peopleQuery}
+              onChange={(e) => setPeopleQuery(e.target.value)}
+              placeholder="Search email"
+              className="mt-3 w-full rounded-xl border border-white/10 bg-ink-950 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gold/40"
+            />
+            <div className="mt-3 max-h-80 space-y-1 overflow-auto">
+              {loadingPeople && (
+                <p className="px-1 text-sm text-zinc-500">Refreshing users…</p>
+              )}
+              {people
+                .filter((person) => {
+                  if (person.email === user?.email) return false;
+                  if (String(person._id) === String(user?._id)) return false;
+                  if (
+                    peopleQuery &&
+                    !String(person.email || "")
+                      .toLowerCase()
+                      .includes(peopleQuery.toLowerCase())
+                  ) {
+                    return false;
+                  }
+                  return true;
+                })
+                .map((person) => (
                 <button
                   key={person._id}
                   onClick={() => openDirect(person._id)}
@@ -233,7 +280,7 @@ const Home = () => {
                   <span className="text-sm">{person.email}</span>
                 </button>
               ))}
-              {people.length === 0 && (
+              {!loadingPeople && people.length === 0 && (
                 <p className="px-1 text-sm text-zinc-500">
                   No other accounts yet. Ask someone to register, then message them here.
                 </p>

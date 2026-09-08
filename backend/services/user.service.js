@@ -15,9 +15,20 @@ export const createUser = async ({ email, password }) => {
   return user;
 };
 
-export const getAllUsers = async ({ userId }) => {
-  const users = await userModel.find({
-    _id: { $ne: userId },
-  });
+export const getAllUsers = async ({ userId, email }) => {
+  const filters = [];
+  if (userId) {
+    filters.push({ _id: { $ne: userId } });
+  }
+  if (email) {
+    filters.push({ email: { $ne: String(email).toLowerCase() } });
+  }
+
+  const users = await userModel
+    .find(filters.length ? { $and: filters } : {})
+    .select("email createdAt")
+    .sort({ createdAt: -1 })
+    .lean();
+
   return users;
 };
