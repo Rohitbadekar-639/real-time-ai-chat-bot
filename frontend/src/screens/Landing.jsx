@@ -1,8 +1,6 @@
-import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Brand from "../components/Brand";
 import StatusPill from "../components/StatusPill";
-import { pingApi } from "../config/health";
 
 const steps = [
   {
@@ -34,18 +32,12 @@ const stack = [
 ];
 
 export default function Landing() {
-  const [status, setStatus] = useState(null);
-
-  useEffect(() => {
-    pingApi().then(setStatus);
-  }, []);
-
   return (
     <div className="min-h-screen bg-ink-950 text-zinc-100 grain">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
         <Brand />
         <div className="flex items-center gap-3">
-          <StatusPill status={status} />
+          <StatusPill />
           <Link
             to="/login"
             className="hidden rounded-full px-4 py-2 text-sm text-zinc-300 hover:text-white sm:inline"

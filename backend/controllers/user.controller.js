@@ -17,7 +17,16 @@ export const createUserController = async (req, res) => {
     if (error.code === 11000) {
       return res.status(409).json({ errors: "An account with this email already exists" });
     }
-    res.status(400).send(error.message);
+    console.error("register failed:", error.message);
+    const waking =
+      /buffering timed out|ECONNREFUSED|MongoNetwork|ServerSelection/i.test(
+        error.message || ""
+      );
+    return res.status(waking ? 503 : 400).json({
+      error: waking
+        ? "Database is waking up. Please wait a few seconds and try again."
+        : error.message,
+    });
   }
 };
 
@@ -44,7 +53,16 @@ export const loginController = async (req, res) => {
     delete user._doc.password;
     res.status(200).json({ user, token });
   } catch (err) {
-    res.status(400).send(err.message);
+    console.error("login failed:", err.message);
+    const waking =
+      /buffering timed out|ECONNREFUSED|MongoNetwork|ServerSelection/i.test(
+        err.message || ""
+      );
+    return res.status(waking ? 503 : 400).json({
+      error: waking
+        ? "Database is waking up. Please wait a few seconds and try again."
+        : err.message,
+    });
   }
 };
 

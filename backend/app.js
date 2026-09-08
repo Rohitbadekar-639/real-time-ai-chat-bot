@@ -45,7 +45,11 @@ app.get("/", (req, res) => {
   });
 });
 
-app.get("/health", (req, res) => {
+app.get("/health", async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    connect();
+  }
+
   res.json({
     ok: true,
     mongo: mongoose.connection.readyState === 1,

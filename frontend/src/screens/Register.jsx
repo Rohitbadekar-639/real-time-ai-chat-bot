@@ -4,19 +4,17 @@ import axios from "../config/axios";
 import { UserContext } from "../context/user.context";
 import Brand from "../components/Brand";
 import StatusPill from "../components/StatusPill";
-import { pingApi } from "../config/health";
+import { apiError } from "../config/apiError";
 
 const Register = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [status, setStatus] = useState(null);
   const { setUser } = useContext(UserContext);
   const navigate = useNavigate();
 
   useEffect(() => {
-    pingApi().then(setStatus);
     if (localStorage.getItem("token")) {
       navigate("/app");
     }
@@ -37,12 +35,12 @@ const Register = () => {
         navigate("/app");
       })
       .catch((err) => {
-        const data = err.response?.data;
-        const message =
-          typeof data?.errors === "string"
-            ? data.errors
-            : data?.errors?.[0]?.msg || data?.error || "Could not create the account. Try a different email, or wait if the server is waking up.";
-        setError(message);
+        setError(
+          apiError(
+            err,
+            "Could not create the account. Try a different email, or wait if the server is waking up."
+          )
+        );
       })
       .finally(() => setSubmitting(false));
   };
@@ -53,7 +51,7 @@ const Register = () => {
         <Link to="/">
           <Brand />
         </Link>
-        <StatusPill status={status} />
+        <StatusPill />
       </div>
       <div className="mx-auto w-full max-w-md rounded-3xl border border-white/10 bg-ink-800 p-8 shadow-2xl">
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-gold">
