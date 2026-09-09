@@ -112,6 +112,8 @@ body {
   line-height: 1.6;
   tab-size: 2;
 }
+
+.workspace-shell {
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
