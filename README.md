@@ -42,7 +42,7 @@ flowchart LR
   Browser -->|REST JWT| API
   Browser -->|Socket.IO| API
   API --> DB
-  API -->|@ai| AI
+  API -->|"@ai"| AI
   Browser --> WC
 ```
 
