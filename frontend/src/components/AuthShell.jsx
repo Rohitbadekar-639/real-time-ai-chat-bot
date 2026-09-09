@@ -1,14 +1,16 @@
 import { Link } from "react-router-dom";
 import Brand from "./Brand";
 import StatusPill from "./StatusPill";
+import SkipLink from "./SkipLink";
 import { CAPABILITIES } from "../data/starters";
 
 export default function AuthShell({ kicker, title, subtitle, children, footer }) {
   return (
-    <div className="min-h-screen bg-ink-950 md:grid md:grid-cols-2">
+    <div className="min-h-dvh bg-ink-950 md:grid md:grid-cols-2">
+      <SkipLink />
       <aside className="relative hidden flex-col justify-between overflow-hidden border-r border-white/10 px-10 py-10 grain md:flex">
         <div className="pointer-events-none absolute -right-16 top-20 h-64 w-64 rounded-full bg-gold/10 blur-3xl" />
-        <Link to="/">
+        <Link to="/" className="w-fit" aria-label="Nexora home">
           <Brand />
         </Link>
         <div className="relative max-w-md">
@@ -20,10 +22,10 @@ export default function AuthShell({ kicker, title, subtitle, children, footer })
           </h1>
           <ul className="mt-8 space-y-4">
             {CAPABILITIES.map((item) => (
-              <li key={item.title} className="flex gap-3 text-sm text-zinc-400">
-                <i className={`${item.icon} mt-0.5 text-gold`} />
+              <li key={item.title} className="flex gap-3 text-sm text-zinc-300">
+                <i className={`${item.icon} mt-0.5 text-gold`} aria-hidden />
                 <span>
-                  <span className="font-semibold text-zinc-200">{item.title}. </span>
+                  <span className="font-semibold text-zinc-100">{item.title}. </span>
                   {item.body}
                 </span>
               </li>
@@ -33,19 +35,19 @@ export default function AuthShell({ kicker, title, subtitle, children, footer })
         <StatusPill />
       </aside>
 
-      <section className="flex min-h-screen flex-col px-4 py-8 sm:px-8">
-        <div className="mb-10 flex items-center justify-between md:hidden">
-          <Link to="/">
+      <section className="flex min-h-dvh flex-col px-4 py-6 sm:px-8 sm:py-8">
+        <div className="mb-8 flex items-center justify-between gap-3 md:hidden">
+          <Link to="/" aria-label="Nexora home">
             <Brand />
           </Link>
-          <StatusPill />
+          <StatusPill compact />
         </div>
-        <div className="mx-auto my-auto w-full max-w-md">
+        <div id="main-content" className="mx-auto mt-2 w-full max-w-md pb-10 md:my-auto">
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-gold">
             {kicker}
           </p>
           <h2 className="font-display mt-2 text-3xl font-bold text-white">{title}</h2>
-          <p className="mt-2 text-sm text-zinc-400">{subtitle}</p>
+          <p className="mt-2 text-sm text-zinc-300">{subtitle}</p>
           <div className="mt-8">{children}</div>
           {footer}
         </div>

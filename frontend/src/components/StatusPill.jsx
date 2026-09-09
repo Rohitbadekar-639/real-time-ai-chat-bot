@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { pingApi } from "../config/health";
 
-export default function StatusPill() {
+export default function StatusPill({ compact = false }) {
   const [status, setStatus] = useState(null);
 
   useEffect(() => {
@@ -20,12 +20,13 @@ export default function StatusPill() {
     }
 
     tick();
-    const id = setInterval(tick, 4000);
+    const live = Boolean(status?.ok && status?.mongo);
+    const id = setInterval(tick, live ? 20000 : 5000);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, []);
+  }, [status?.ok, status?.mongo]);
 
   const live = Boolean(status?.ok && status?.mongo);
   const label = !status
@@ -43,9 +44,14 @@ export default function StatusPill() {
       : "bg-amber-400";
 
   return (
-    <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-300">
+    <span
+      role="status"
+      aria-live="polite"
+      title={label}
+      className="inline-flex min-h-8 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-zinc-200"
+    >
       <span className={`h-1.5 w-1.5 rounded-full ${color} ${live ? "" : "animate-pulse"}`} />
-      {label}
+      <span className={compact ? "max-sm:sr-only" : undefined}>{label}</span>
     </span>
   );
 }

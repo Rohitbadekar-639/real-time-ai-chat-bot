@@ -2,6 +2,7 @@ import { useState, useContext, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { UserContext } from "../context/user.context";
 import AuthShell from "../components/AuthShell";
+import PasswordField from "../components/PasswordField";
 import { apiError } from "../config/apiError";
 import { authRequest } from "../config/authRequest";
 
@@ -73,43 +74,37 @@ const Register = () => {
             type="email"
             autoComplete="email"
             required
-            className="w-full rounded-xl border border-white/10 bg-ink-900 px-3 py-3 text-sm text-white outline-none ring-gold/40 placeholder:text-zinc-500 focus:ring-2"
+            autoCapitalize="none"
+            autoCorrect="off"
+            className="w-full rounded-xl border border-white/10 bg-ink-900 px-3 py-3 text-base text-white outline-none ring-gold/40 placeholder:text-zinc-500 focus-visible:ring-2 sm:text-sm"
             placeholder="you@company.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
         </div>
-        <div>
-          <label htmlFor="password" className="mb-1.5 block text-xs text-zinc-400">
-            Password
-          </label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="new-password"
-            required
-            minLength={3}
-            className="w-full rounded-xl border border-white/10 bg-ink-900 px-3 py-3 text-sm text-white outline-none ring-gold/40 placeholder:text-zinc-500 focus:ring-2"
-            placeholder="At least 3 characters"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </div>
+        <PasswordField
+          id="password"
+          label="Password"
+          autoComplete="new-password"
+          minLength={3}
+          placeholder="At least 3 characters"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
         {status && !error && (
-          <p className="rounded-xl border border-gold/20 bg-gold/10 px-3 py-2 text-sm text-gold">
+          <p role="status" className="rounded-xl border border-gold/20 bg-gold/10 px-3 py-2 text-sm text-gold">
             {status}
           </p>
         )}
         {error && (
-          <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+          <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
             {error}
           </p>
         )}
         <button
           type="submit"
           disabled={submitting}
-          className="w-full rounded-xl bg-gold py-3 text-sm font-semibold text-ink-950 hover:bg-amber-200 disabled:opacity-60"
+          className="min-h-12 w-full rounded-xl bg-gold py-3 text-sm font-semibold text-ink-950 hover:bg-amber-200 disabled:opacity-60"
         >
           {submitting ? "Please wait…" : "Create account"}
         </button>

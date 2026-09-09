@@ -56,7 +56,7 @@ const UserAuth = ({ children }) => {
 
   if (loading) {
     return (
-      <div className="grid min-h-screen place-items-center bg-ink-950 text-zinc-400">
+      <div className="grid min-h-dvh place-items-center bg-ink-950 text-zinc-400">
         <div className="flex flex-col items-center gap-3">
           <span className="h-8 w-8 animate-spin rounded-full border-2 border-gold/30 border-t-gold" />
           <p className="text-sm">Opening your workspace…</p>
@@ -67,7 +67,7 @@ const UserAuth = ({ children }) => {
 
   if (!user) {
     return (
-      <div className="grid min-h-screen place-items-center bg-ink-950 px-6 text-center text-zinc-400">
+      <div className="grid min-h-dvh place-items-center bg-ink-950 px-6 text-center text-zinc-400">
         <div>
           <p className="text-sm">The API is still waking up.</p>
           <button

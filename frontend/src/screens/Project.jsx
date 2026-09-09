@@ -14,6 +14,8 @@ import "highlight.js/styles/nord.css";
 import { getWebContainer } from "../config/webContainer";
 import Brand from "../components/Brand";
 import StatusPill from "../components/StatusPill";
+import SkipLink from "../components/SkipLink";
+import Modal from "../components/Modal";
 import { STARTERS } from "../data/starters";
 import { roomKind, roomTitle } from "../config/rooms";
 
@@ -81,6 +83,7 @@ const Project = () => {
   const [showPreview, setShowPreview] = useState(true);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [typingUsers, setTypingUsers] = useState([]);
+  const [mobilePane, setMobilePane] = useState("chat");
   const typingTimer = useRef(null);
   const applyingRemoteTree = useRef(false);
 
@@ -269,7 +272,7 @@ const Project = () => {
 
     initializeSocket(project._id);
 
-    if (!webContainer) {
+    if (!webContainer && !window.matchMedia("(max-width: 767px)").matches) {
       getWebContainer()
         .then((container) => {
           webContainerRef.current = container;
@@ -279,6 +282,8 @@ const Project = () => {
           console.log(err);
           setRunHint("In-browser run needs a Chromium browser. Chat and AI still work.");
         });
+    } else if (window.matchMedia("(max-width: 767px)").matches) {
+      setRunHint("On a phone you can chat and edit files. Open Chrome on desktop to Run a live preview.");
     }
 
     receiveMessage("room-presence", (members) => {
@@ -348,8 +353,9 @@ const Project = () => {
         }
       });
 
-    loadUsers();
-    const onFocus = () => loadUsers();
+    const onFocus = () => {
+      if (isModalOpen) loadUsers();
+    };
     window.addEventListener("focus", onFocus);
 
     return () => {
@@ -361,9 +367,18 @@ const Project = () => {
   useEffect(() => {
     if (!isModalOpen) return undefined;
     loadUsers();
-    const tick = setInterval(loadUsers, 4000);
+    const tick = setInterval(loadUsers, 8000);
     return () => clearInterval(tick);
   }, [isModalOpen]);
+
+  useEffect(() => {
+    if (!isSidePanelOpen) return undefined;
+    const onKey = (event) => {
+      if (event.key === "Escape") setIsSidePanelOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [isSidePanelOpen]);
 
   useEffect(() => {
     if (messageBox.current) {
@@ -394,60 +409,84 @@ const Project = () => {
 
   if (!project) {
     return (
-      <div className="grid min-h-screen place-items-center bg-ink-950 text-zinc-400">
+      <div className="grid min-h-dvh place-items-center bg-ink-950 text-zinc-400">
         Returning to rooms…
       </div>
     );
   }
 
+  const inviteCandidates = users.filter((listedUser) => {
+    if (listedUser.email === user?.email) return false;
+    if (String(listedUser._id) === String(user?._id)) return false;
+    if (
+      userQuery &&
+      !String(listedUser.email || "")
+        .toLowerCase()
+        .includes(userQuery.toLowerCase())
+    ) {
+      return false;
+    }
+    return true;
+  });
+
   return (
-    <main className="flex h-screen w-screen flex-col overflow-hidden bg-ink-950 text-zinc-100">
-      <header className="flex items-center justify-between gap-3 border-b border-white/10 bg-ink-900 px-4 py-2.5">
-        <div className="flex min-w-0 items-center gap-3">
-          <button onClick={() => navigate("/app")} className="shrink-0">
+    <main className="workspace-shell flex w-full flex-col bg-ink-950 text-zinc-100">
+      <SkipLink href="#room-content" />
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 bg-ink-900 px-2 py-2 sm:px-4">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+          <button
+            onClick={() => navigate("/app")}
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-xl"
+            aria-label="Back to rooms"
+          >
             <Brand compact />
           </button>
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">
+            <h1 className="truncate text-sm font-semibold">
               {roomTitle(project, user?.email)}
-            </p>
-            <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+            </h1>
+            <p className="truncate text-[10px] uppercase tracking-[0.18em] text-zinc-400">
               {roomKind(project) === "direct"
                 ? "Direct chat"
                 : roomKind(project) === "solo"
                   ? "Solo workspace"
                   : "Group room"}
-              {onlineUsers.length
-                ? ` · ${onlineUsers.length} online`
-                : ""}
+              {onlineUsers.length ? ` · ${onlineUsers.length} online` : ""}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <StatusPill />
+        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+          <StatusPill compact />
           <button
-            className="hidden rounded-full border border-white/10 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/5 sm:inline"
+            className="inline-flex h-11 items-center rounded-full border border-white/10 px-3 text-xs text-zinc-200 hover:bg-white/5"
             onClick={openInvite}
           >
-            Invite
+            <i className="ri-user-add-line mr-0 sm:mr-1.5" aria-hidden />
+            <span className="hidden sm:inline">Invite</span>
+            <span className="sr-only sm:hidden">Invite people</span>
           </button>
           <button
             onClick={() => setIsSidePanelOpen(true)}
-            className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/5"
+            className="inline-flex h-11 items-center rounded-full border border-white/10 px-3 text-xs text-zinc-200 hover:bg-white/5"
           >
             People
           </button>
           <button
             onClick={() => navigate("/app")}
-            className="rounded-full px-3 py-1.5 text-xs text-zinc-400 hover:text-white"
+            className="hidden h-11 items-center rounded-full px-3 text-xs text-zinc-400 hover:text-white sm:inline-flex"
           >
             Rooms
           </button>
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        <section className="relative flex h-full w-[22rem] shrink-0 flex-col border-r border-white/10 bg-ink-800">
+      <div id="room-content" className="flex min-h-0 flex-1">
+        <section
+          className={`${
+            mobilePane === "chat" ? "flex" : "hidden"
+          } relative h-full min-h-0 w-full shrink-0 flex-col border-r border-white/10 bg-ink-800 lg:flex lg:w-[22rem]`}
+          aria-label="Live chat"
+        >
           <div className="border-b border-white/10 px-4 py-3">
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gold">
               Live chat
@@ -463,12 +502,21 @@ const Project = () => {
             {messages.length === 0 && !aiBusy && (
               <div className="rounded-2xl border border-white/10 bg-ink-950 p-4">
                 <p className="text-sm font-semibold">What to do in this room</p>
-                <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs leading-5 text-zinc-400">
+                <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs leading-5 text-zinc-300">
                   <li>Chat here like WhatsApp — others in the room see it instantly</li>
-                  <li>Click a starter or type @ai to generate shared files</li>
-                  <li>Edit code together, then press Run</li>
+                  <li>Tap a starter or type @ai to generate shared files</li>
+                  <li>Edit code together, then press Run on desktop Chrome</li>
                 </ol>
               </div>
+            )}
+            {hasFiles && (
+              <button
+                type="button"
+                onClick={() => setMobilePane("workspace")}
+                className="rounded-xl border border-gold/20 bg-gold/10 px-3 py-2 text-left text-xs text-gold lg:hidden"
+              >
+                Files are ready. Open the Code tab to edit and run.
+              </button>
             )}
             {messages.map((msg, index) => (
               <div
@@ -522,7 +570,11 @@ const Project = () => {
               ))}
             </div>
             <div className="flex overflow-hidden rounded-xl border border-white/10">
+              <label htmlFor="room-message" className="sr-only">
+                Message this chat
+              </label>
               <input
+                id="room-message"
                 value={message}
                 onChange={(e) => {
                   setMessage(e.target.value);
@@ -533,64 +585,42 @@ const Project = () => {
                   }, 1200);
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") {
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
                     send();
                   }
                 }}
-                className="flex-grow bg-ink-900 px-3 py-2.5 text-sm outline-none placeholder:text-zinc-500"
+                className="min-h-11 flex-grow bg-ink-900 px-3 py-2.5 text-base outline-none placeholder:text-zinc-400 sm:text-sm"
                 type="text"
                 placeholder="Message this chat · @ai to generate code"
               />
-              <button onClick={send} className="bg-gold px-4 text-ink-950">
-                <i className="ri-send-plane-fill"></i>
+              <button
+                onClick={send}
+                className="min-w-12 bg-gold px-4 text-ink-950"
+                aria-label="Send message"
+              >
+                <i className="ri-send-plane-fill" aria-hidden />
               </button>
-            </div>
-          </div>
-
-          <div
-            className={`absolute inset-0 z-20 flex flex-col bg-ink-800 transition-transform ${
-              isSidePanelOpen ? "translate-x-0" : "-translate-x-full"
-            }`}
-          >
-            <header className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-              <h1 className="text-sm font-semibold">Collaborators</h1>
-              <button onClick={() => setIsSidePanelOpen(false)} className="p-1 text-zinc-400">
-                <i className="ri-close-fill text-lg"></i>
-              </button>
-            </header>
-            <div className="flex flex-col gap-1 p-2">
-              {project.users &&
-                project.users.map((collaborator) => (
-                  <div
-                    key={collaborator._id || collaborator.email}
-                    className="flex items-center gap-2 rounded-xl p-2"
-                  >
-                    <div className="grid h-8 w-8 place-items-center rounded-full bg-ink-700 text-gold">
-                      <i className="ri-user-fill"></i>
-                    </div>
-                    <p className="text-sm">{collaborator.email}</p>
-                    {onlineUsers.some(
-                      (member) =>
-                        member.email === collaborator.email ||
-                        String(member._id) === String(collaborator._id)
-                    ) && (
-                      <span className="ml-auto text-[10px] uppercase tracking-[0.14em] text-tide">
-                        Online
-                      </span>
-                    )}
-                  </div>
-                ))}
             </div>
           </div>
         </section>
 
-        <section className="flex min-w-0 flex-1 bg-ink-900">
-          <div className="h-full w-52 shrink-0 border-r border-white/10 bg-ink-800">
-            <div className="px-4 py-3 text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+        <section
+          className={`${
+            mobilePane === "workspace" || mobilePane === "preview" ? "flex" : "hidden"
+          } min-w-0 flex-1 flex-col bg-ink-900 lg:flex lg:flex-row`}
+          aria-label="Code workspace"
+        >
+          <div
+            className={`${
+              mobilePane === "preview" ? "hidden lg:flex" : "flex"
+            } max-h-28 shrink-0 flex-row overflow-x-auto border-b border-white/10 bg-ink-800 lg:h-full lg:max-h-none lg:w-52 lg:flex-col lg:overflow-y-auto lg:border-b-0 lg:border-r`}
+          >
+            <div className="hidden px-4 py-3 text-[10px] uppercase tracking-[0.2em] text-zinc-400 lg:block">
               Files
             </div>
             {!hasFiles && (
-              <p className="px-4 text-xs leading-5 text-zinc-500">
+              <p className="hidden px-4 text-xs leading-5 text-zinc-400 lg:block">
                 Generated files land here after @ai.
               </p>
             )}
@@ -601,18 +631,18 @@ const Project = () => {
                   setCurrentFile(file);
                   setOpenFiles([...new Set([...openFiles, file])]);
                 }}
-                className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm ${
-                  currentFile === file ? "bg-ink-700 text-gold" : "text-zinc-300 hover:bg-ink-700"
+                className={`flex shrink-0 items-center gap-2 px-4 py-3 text-left text-sm lg:w-full ${
+                  currentFile === file ? "bg-ink-700 text-gold" : "text-zinc-200 hover:bg-ink-700"
                 }`}
               >
-                <i className="ri-file-code-line text-zinc-500" />
+                <i className="ri-file-code-line text-zinc-400" aria-hidden />
                 <span className="truncate">{file}</span>
               </button>
             ))}
           </div>
 
           <div className="flex min-w-0 flex-1 flex-col">
-            <div className="flex items-center justify-between border-b border-white/10">
+            <div className={`${mobilePane === "preview" ? "hidden lg:flex" : "flex"} items-center justify-between border-b border-white/10`}>
               <div className="flex min-w-0 overflow-auto">
                 {openFiles.map((file) => (
                   <div
@@ -649,7 +679,7 @@ const Project = () => {
                 <button
                   onClick={runWorkspace}
                   disabled={running}
-                  className="rounded-lg bg-tide px-4 py-1.5 text-sm font-semibold text-ink-950 hover:bg-teal-200 disabled:opacity-60"
+                  className="min-h-10 rounded-lg bg-tide px-4 py-1.5 text-sm font-semibold text-ink-950 hover:bg-teal-200 disabled:opacity-60"
                 >
                   {running ? "Running…" : "Run"}
                 </button>
@@ -661,9 +691,13 @@ const Project = () => {
             )}
 
             <div className="flex min-h-0 flex-1">
-              <div className="flex min-w-0 flex-1 flex-col">
+              <div
+                className={`${
+                  mobilePane === "preview" ? "hidden lg:flex" : "flex"
+                } min-w-0 flex-1 flex-col`}
+              >
                 {!hasFiles ? (
-                  <div className="flex flex-1 flex-col justify-center gap-4 px-8">
+                  <div className="flex flex-1 flex-col justify-center gap-4 overflow-auto px-4 py-6 sm:px-8">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gold">
                         Empty workspace
@@ -750,15 +784,35 @@ const Project = () => {
                 )}
               </div>
 
-              {showPreview && iframeUrl && webContainer && (
-                <div className="flex w-[26rem] shrink-0 flex-col border-l border-white/10">
-                  <input
-                    type="text"
-                    onChange={(e) => setIframeUrl(e.target.value)}
-                    value={iframeUrl}
-                    className="border-b border-white/10 bg-ink-800 px-3 py-2 text-xs"
-                  />
-                  <iframe title="Nexora preview" src={iframeUrl} className="h-full w-full bg-white" />
+              {(mobilePane === "preview" || (showPreview && iframeUrl && webContainer)) && (
+                <div
+                  className={`${
+                    mobilePane === "preview" ? "flex" : "hidden"
+                  } w-full min-w-0 flex-col border-l border-white/10 lg:flex lg:w-[26rem] lg:shrink-0 ${
+                    showPreview && iframeUrl && webContainer ? "" : "lg:hidden"
+                  }`}
+                >
+                  {iframeUrl ? (
+                    <>
+                      <label htmlFor="preview-url" className="sr-only">
+                        Preview URL
+                      </label>
+                      <input
+                        id="preview-url"
+                        type="text"
+                        onChange={(e) => setIframeUrl(e.target.value)}
+                        value={iframeUrl}
+                        className="border-b border-white/10 bg-ink-800 px-3 py-2 text-sm"
+                      />
+                      <iframe title="Nexora preview" src={iframeUrl} className="h-full w-full bg-white" />
+                    </>
+                  ) : (
+                    <div className="grid flex-1 place-items-center px-6 text-center text-sm text-zinc-400">
+                      <p>
+                        No preview yet. Generate files with @ai, then tap Run in Chrome on a desktop.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -766,87 +820,152 @@ const Project = () => {
         </section>
       </div>
 
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-          <div className="relative w-96 max-w-full rounded-2xl border border-white/10 bg-ink-800 p-4">
-            <header className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Invite to this room</h2>
-              <button onClick={() => setIsModalOpen(false)} className="p-2">
-                <i className="ri-close-fill"></i>
+      <nav
+        className="flex shrink-0 border-t border-white/10 bg-ink-900 lg:hidden"
+        aria-label="Room views"
+      >
+        {[
+          { id: "chat", icon: "ri-chat-3-line", label: "Chat" },
+          { id: "workspace", icon: "ri-code-s-slash-line", label: "Code" },
+          { id: "preview", icon: "ri-window-line", label: "Preview" },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setMobilePane(tab.id)}
+            className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[11px] ${
+              mobilePane === tab.id ? "text-gold" : "text-zinc-400"
+            }`}
+            aria-current={mobilePane === tab.id ? "page" : undefined}
+          >
+            <i className={`${tab.icon} text-lg`} aria-hidden />
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
+      {isSidePanelOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60"
+          onClick={() => setIsSidePanelOpen(false)}
+          role="presentation"
+        >
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="people-title"
+            className="absolute inset-y-0 left-0 flex w-[min(20rem,90vw)] flex-col bg-ink-800 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+              <h2 id="people-title" className="text-sm font-semibold">
+                Collaborators
+              </h2>
+              <button
+                onClick={() => setIsSidePanelOpen(false)}
+                className="grid h-11 w-11 place-items-center text-zinc-300"
+                aria-label="Close people list"
+              >
+                <i className="ri-close-fill text-lg" aria-hidden />
               </button>
             </header>
-            <p className="mb-3 text-xs text-zinc-400">
-              Newest accounts show first. Search if the list is long.
-            </p>
-            <input
-              value={userQuery}
-              onChange={(e) => setUserQuery(e.target.value)}
-              placeholder="Search email"
-              className="mb-3 w-full rounded-xl border border-white/10 bg-ink-950 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gold/40"
-            />
-            <div className="users-list mb-16 flex max-h-96 flex-col gap-2 overflow-auto">
-              {loadingUsers && (
-                <p className="px-2 text-sm text-zinc-500">Refreshing users…</p>
-              )}
-              {users
-                .filter((listedUser) => {
-                  if (listedUser.email === user?.email) return false;
-                  if (String(listedUser._id) === String(user?._id)) return false;
-                  if (
-                    userQuery &&
-                    !String(listedUser.email || "")
-                      .toLowerCase()
-                      .includes(userQuery.toLowerCase())
-                  ) {
-                    return false;
-                  }
-                  return true;
-                })
-                .map((listedUser) => {
-                  const alreadyIn = (project.users || []).some(
+            <div className="flex flex-col gap-1 overflow-auto p-2">
+              {(project.users || []).map((collaborator) => (
+                <div
+                  key={collaborator._id || collaborator.email}
+                  className="flex items-center gap-2 rounded-xl p-2"
+                >
+                  <div className="grid h-8 w-8 place-items-center rounded-full bg-ink-700 text-gold">
+                    <i className="ri-user-fill" aria-hidden />
+                  </div>
+                  <p className="min-w-0 truncate text-sm">{collaborator.email}</p>
+                  {onlineUsers.some(
                     (member) =>
-                      String(member._id) === String(listedUser._id) ||
-                      member.email === listedUser.email
-                  );
-                  const selected = [...selectedUserId].some(
-                    (id) => String(id) === String(listedUser._id)
-                  );
-                  return (
-                    <div
-                      key={listedUser._id}
-                      className={`flex cursor-pointer items-center gap-2 rounded-xl p-2 hover:bg-ink-700 ${
-                        selected ? "bg-ink-700" : ""
-                      } ${alreadyIn ? "opacity-50" : ""}`}
-                      onClick={() => {
-                        if (!alreadyIn) handleUserClick(listedUser._id);
-                      }}
-                    >
-                      <div className="grid h-9 w-9 place-items-center rounded-full bg-ink-700 text-gold">
-                        <i className="ri-user-fill"></i>
-                      </div>
-                      <div className="min-w-0">
-                        <h1 className="truncate text-sm font-semibold">{listedUser.email}</h1>
-                        {alreadyIn && (
-                          <p className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
-                            Already in this room
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              {!loadingUsers && users.length === 0 && (
-                <p className="px-2 text-sm text-zinc-500">No other users yet.</p>
-              )}
+                      member.email === collaborator.email ||
+                      String(member._id) === String(collaborator._id)
+                  ) && (
+                    <span className="ml-auto text-[10px] uppercase tracking-[0.14em] text-tide">
+                      Online
+                    </span>
+                  )}
+                </div>
+              ))}
             </div>
+          </aside>
+        </div>
+      )}
+
+      {isModalOpen && (
+        <Modal
+          title="Invite to this room"
+          description="Newest accounts show first. Search if the list is long."
+          onClose={() => setIsModalOpen(false)}
+          footer={
             <button
               onClick={addCollaborators}
-              className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-xl bg-gold px-4 py-2 text-sm font-semibold text-ink-950"
+              className="mt-4 min-h-11 w-full rounded-xl bg-gold px-4 py-2 text-sm font-semibold text-ink-950"
             >
               Add collaborators
             </button>
+          }
+        >
+          <label htmlFor="invite-search" className="sr-only">
+            Search people by email
+          </label>
+          <input
+            id="invite-search"
+            value={userQuery}
+            onChange={(e) => setUserQuery(e.target.value)}
+            placeholder="Search email"
+            className="mb-3 w-full rounded-xl border border-white/10 bg-ink-950 px-3 py-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-gold/40 sm:text-sm"
+          />
+          <div className="flex max-h-[50vh] flex-col gap-2 overflow-auto">
+            {loadingUsers && (
+              <p className="px-2 text-sm text-zinc-400">Refreshing users…</p>
+            )}
+            {inviteCandidates.map((listedUser) => {
+              const alreadyIn = (project.users || []).some(
+                (member) =>
+                  String(member._id) === String(listedUser._id) ||
+                  member.email === listedUser.email
+              );
+              const selected = [...selectedUserId].some(
+                (id) => String(id) === String(listedUser._id)
+              );
+              return (
+                <button
+                  type="button"
+                  key={listedUser._id}
+                  disabled={alreadyIn}
+                  className={`flex min-h-12 items-center gap-2 rounded-xl p-2 text-left hover:bg-ink-700 ${
+                    selected ? "bg-ink-700" : ""
+                  } ${alreadyIn ? "opacity-50" : ""}`}
+                  onClick={() => {
+                    if (!alreadyIn) handleUserClick(listedUser._id);
+                  }}
+                >
+                  <div className="grid h-9 w-9 place-items-center rounded-full bg-ink-700 text-gold">
+                    <i className="ri-user-fill" aria-hidden />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold">{listedUser.email}</p>
+                    {alreadyIn && (
+                      <p className="text-[10px] uppercase tracking-[0.14em] text-zinc-400">
+                        Already in this room
+                      </p>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+            {!loadingUsers && users.length === 0 && (
+              <p className="px-2 text-sm text-zinc-400">No other users yet.</p>
+            )}
+            {!loadingUsers && users.length > 0 && inviteCandidates.length === 0 && (
+              <p className="px-2 text-sm text-zinc-400">No matching accounts.</p>
+            )}
           </div>
-        </div>
+        </Modal>
       )}
     </main>
   );
