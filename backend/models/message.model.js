@@ -16,6 +16,12 @@ const messageSchema = new mongoose.Schema(
       _id: { type: String, required: true },
       email: { type: String, required: true },
     },
+    attachment: {
+      kind: { type: String, enum: ["image"] },
+      name: String,
+      mime: String,
+      data: String,
+    },
   },
   { timestamps: true }
 );

@@ -8,11 +8,21 @@ import ProjectModel from "./models/project.model.js";
 import Message from "./models/message.model.js";
 import { generateResult } from "./services/ai.service.js";
 import { isAllowedOrigin } from "./config/origins.js";
+import { recordAiAudit } from "./models/aiAudit.model.js";
+import {
+  assertAiBudget,
+  beginAiJob,
+  clipAiPrompt,
+  endAiJob,
+  isTrivialAiPrompt,
+  sanitizeAttachment,
+} from "./services/ai-guard.js";
 
 const port = process.env.PORT || 3000;
 
 const server = http.createServer(app);
 const io = new Server(server, {
+  maxHttpBufferSize: 1.5e6,
   cors: {
     origin(origin, callback) {
       if (isAllowedOrigin(origin)) {
@@ -65,15 +75,16 @@ io.use(async (socket, next) => {
   }
 });
 
-async function persistMessage({ projectId, message, sender }) {
+async function persistMessage({ projectId, message, sender, attachment }) {
   try {
     await Message.create({
       project: projectId,
-      message,
+      message: message || (attachment ? "Shared an image." : ""),
       sender: {
         _id: String(sender?._id || "unknown"),
         email: sender?.email || "unknown",
       },
+      ...(attachment ? { attachment } : {}),
     });
   } catch (error) {
     console.error("Failed to persist message:", error.message);
@@ -170,31 +181,90 @@ io.on("connection", async (socket) => {
 
   socket.on("project-message", async (data) => {
     const message = data?.message;
-    if (!message || !String(message).trim()) {
+    const attachment = sanitizeAttachment(data?.attachment);
+    if ((!message || !String(message).trim()) && !attachment) {
       return;
     }
 
     const payload = {
-      message,
+      message: String(message || "").trim() || (attachment ? "Shared an image." : ""),
       sender: data.sender || {
         _id: socket.user._id,
         email: socket.user.email,
       },
+      ...(attachment ? { attachment } : {}),
     };
 
     socket.broadcast.to(socket.roomId).emit("project-message", payload);
     await persistMessage({
       projectId: socket.project._id,
-      message,
+      message: payload.message,
       sender: payload.sender,
+      attachment,
     });
 
-    const aiIsPresentInMessage = message.includes("@ai");
-    if (!aiIsPresentInMessage) {
+    const wantsAi = !attachment && payload.message.includes("@ai");
+    if (!wantsAi) {
       return;
     }
 
-    const prompt = message.replace(/@ai/gi, "").trim();
+    const prompt = clipAiPrompt(payload.message.replace(/@ai/gi, ""));
+    const userKey = String(socket.user._id);
+
+    if (isTrivialAiPrompt(prompt)) {
+      const note = JSON.stringify({
+        text: "Add a coding task after @ai, or tap a starter. Short greetings do not call the model.",
+      });
+      const aiPayload = { message: note, sender: { _id: "ai", email: "AI" } };
+      io.to(socket.roomId).emit("project-message", aiPayload);
+      await persistMessage({
+        projectId: socket.project._id,
+        message: note,
+        sender: aiPayload.sender,
+      });
+      recordAiAudit({
+        userId: userKey,
+        email: socket.user.email,
+        projectId: socket.roomId,
+        promptChars: prompt.length,
+        provider: "none",
+        outcome: "trivial",
+      });
+      return;
+    }
+
+    if (!beginAiJob(userKey)) {
+      const note = JSON.stringify({
+        text: "Already generating a workspace for you. Wait for that to finish.",
+      });
+      const aiPayload = { message: note, sender: { _id: "ai", email: "AI" } };
+      io.to(socket.roomId).emit("project-message", aiPayload);
+      return;
+    }
+
+    const budget = assertAiBudget(userKey);
+    if (!budget.ok) {
+      endAiJob(userKey);
+      const note = JSON.stringify({
+        text: `AI is rate-limited in this account. Try again in about ${budget.retryMins} min. Starters and chat still work.`,
+      });
+      const aiPayload = { message: note, sender: { _id: "ai", email: "AI" } };
+      io.to(socket.roomId).emit("project-message", aiPayload);
+      await persistMessage({
+        projectId: socket.project._id,
+        message: note,
+        sender: aiPayload.sender,
+      });
+      recordAiAudit({
+        userId: userKey,
+        email: socket.user.email,
+        projectId: socket.roomId,
+        promptChars: prompt.length,
+        provider: "none",
+        outcome: "rate_limited",
+      });
+      return;
+    }
 
     try {
       const result = await generateResult(prompt);
@@ -210,6 +280,14 @@ io.on("connection", async (socket) => {
         projectId: socket.project._id,
         message: result,
         sender: aiPayload.sender,
+      });
+      recordAiAudit({
+        userId: userKey,
+        email: socket.user.email,
+        projectId: socket.roomId,
+        promptChars: prompt.length,
+        provider: "model",
+        outcome: "ok",
       });
 
       try {
@@ -238,6 +316,16 @@ io.on("connection", async (socket) => {
         },
       };
       io.to(socket.roomId).emit("project-message", aiPayload);
+      recordAiAudit({
+        userId: userKey,
+        email: socket.user.email,
+        projectId: socket.roomId,
+        promptChars: prompt.length,
+        provider: "model",
+        outcome: "error",
+      });
+    } finally {
+      endAiJob(userKey);
     }
   });
 

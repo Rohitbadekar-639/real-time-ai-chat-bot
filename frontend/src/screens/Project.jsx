@@ -9,13 +9,14 @@ import {
   disconnectSocket,
 } from "../config/socket";
 import Markdown from "markdown-to-jsx";
-import hljs from "highlight.js";
 import "highlight.js/styles/nord.css";
 import { getWebContainer } from "../config/webContainer";
 import Brand from "../components/Brand";
 import StatusPill from "../components/StatusPill";
 import SkipLink from "../components/SkipLink";
 import Modal from "../components/Modal";
+import CodeEditor from "../components/CodeEditor";
+import "../config/highlight";
 import { STARTERS } from "../data/starters";
 import { roomKind, roomTitle } from "../config/rooms";
 
@@ -32,21 +33,10 @@ function SyntaxHighlightedCode(props) {
   return <code {...props} ref={ref} />;
 }
 
-function langFromFile(name = "") {
-  if (name.endsWith(".json")) return "json";
-  if (name.endsWith(".html") || name.endsWith(".xml")) return "xml";
-  if (name.endsWith(".css")) return "css";
-  if (name.endsWith(".md")) return "markdown";
-  return "javascript";
-}
-
-function highlightCode(filename, source) {
-  const code = source || "";
-  try {
-    return hljs.highlight(code, { language: langFromFile(filename) }).value;
-  } catch {
-    return hljs.highlightAuto(code).value;
-  }
+function attachmentSrc(attachment) {
+  if (!attachment?.data) return "";
+  if (String(attachment.data).startsWith("data:")) return attachment.data;
+  return `data:${attachment.mime};base64,${attachment.data}`;
 }
 
 const Project = () => {
@@ -86,6 +76,9 @@ const Project = () => {
   const [mobilePane, setMobilePane] = useState("chat");
   const typingTimer = useRef(null);
   const applyingRemoteTree = useRef(false);
+  const saveTimer = useRef(null);
+  const fileInput = useRef(null);
+  const [attachError, setAttachError] = useState("");
 
   const hasFiles = Object.keys(fileTree).length > 0;
 
@@ -152,17 +145,27 @@ const Project = () => {
     }
   }
 
-  function sendPrompt(text) {
+  function sendPrompt(text, extra = {}) {
     const next = String(text || "").trim();
-    if (!next) return;
+    const attachment = extra.attachment;
+    if (!next && !attachment) return;
+    if (next.includes("@ai") && aiBusy) return;
     sendMessage("project-message", {
-      message: next,
+      message: next || (attachment ? "Shared an image." : ""),
       sender: user,
+      ...(attachment ? { attachment } : {}),
     });
-    if (next.includes("@ai")) {
+    if (next.includes("@ai") && !attachment) {
       setAiBusy(true);
     }
-    setMessages((prevMessages) => [...prevMessages, { sender: user, message: next }]);
+    setMessages((prevMessages) => [
+      ...prevMessages,
+      {
+        sender: user,
+        message: next || (attachment ? "Shared an image." : ""),
+        ...(attachment ? { attachment } : {}),
+      },
+    ]);
     sendMessage("typing", { typing: false });
   }
 
@@ -407,6 +410,49 @@ const Project = () => {
     applyingRemoteTree.current = false;
   }
 
+  function updateFileContents(contents) {
+    if (!currentFile) return;
+    setFileTree((prev) => {
+      const ft = {
+        ...prev,
+        [currentFile]: {
+          file: { contents },
+        },
+      };
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => saveFileTree(ft), 700);
+      return ft;
+    });
+  }
+
+  function shareImage(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    setAttachError("");
+    if (!file) return;
+    if (!/^image\/(jpeg|png|webp|gif)$/i.test(file.type)) {
+      setAttachError("Use a JPG, PNG, WebP, or GIF.");
+      return;
+    }
+    if (file.size > 520 * 1024) {
+      setAttachError("Keep images under 500 KB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      sendPrompt(message, {
+        attachment: {
+          kind: "image",
+          name: file.name,
+          mime: file.type,
+          data: reader.result,
+        },
+      });
+      setMessage("");
+    };
+    reader.readAsDataURL(file);
+  }
+
   if (!project) {
     return (
       <div className="grid min-h-dvh place-items-center bg-ink-950 text-zinc-400">
@@ -536,7 +582,18 @@ const Project = () => {
                   {msg.sender._id === "ai" ? (
                     WriteAiMessage(msg.message)
                   ) : (
-                    <p className="px-1 py-0.5">{msg.message}</p>
+                    <>
+                      {msg.attachment?.kind === "image" && (
+                        <img
+                          src={attachmentSrc(msg.attachment)}
+                          alt={msg.attachment.name || "Shared image"}
+                          className="mb-1 max-h-56 max-w-full rounded-lg"
+                        />
+                      )}
+                      {msg.message && msg.message !== "Shared an image." && (
+                        <p className="px-1 py-0.5">{msg.message}</p>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -570,6 +627,21 @@ const Project = () => {
               ))}
             </div>
             <div className="flex overflow-hidden rounded-xl border border-white/10">
+              <input
+                ref={fileInput}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="hidden"
+                onChange={shareImage}
+              />
+              <button
+                type="button"
+                onClick={() => fileInput.current?.click()}
+                className="grid min-w-11 place-items-center bg-ink-900 text-zinc-300 hover:text-gold"
+                aria-label="Attach an image"
+              >
+                <i className="ri-image-line" aria-hidden />
+              </button>
               <label htmlFor="room-message" className="sr-only">
                 Message this chat
               </label>
@@ -602,6 +674,11 @@ const Project = () => {
                 <i className="ri-send-plane-fill" aria-hidden />
               </button>
             </div>
+            {attachError && (
+              <p role="alert" className="mt-1 text-xs text-red-300">
+                {attachError}
+              </p>
+            )}
           </div>
         </section>
 
@@ -730,39 +807,11 @@ const Project = () => {
                     </div>
                   </div>
                 ) : fileTree[currentFile] ? (
-                  <div className="code-editor-area min-h-0 flex-1 overflow-auto bg-ink-950">
-                    <pre className="hljs h-full">
-                      <code
-                        className="hljs h-full outline-none"
-                        contentEditable
-                        suppressContentEditableWarning
-                        onBlur={(e) => {
-                          const updatedContent = e.target.innerText;
-                          const ft = {
-                            ...fileTree,
-                            [currentFile]: {
-                              file: {
-                                contents: updatedContent,
-                              },
-                            },
-                          };
-                          setFileTree(ft);
-                          saveFileTree(ft);
-                        }}
-                        dangerouslySetInnerHTML={{
-                          __html: highlightCode(
-                            currentFile,
-                            fileTree[currentFile].file.contents
-                          ),
-                        }}
-                        style={{
-                          whiteSpace: "pre-wrap",
-                          padding: "1.25rem",
-                          paddingBottom: "8rem",
-                        }}
-                      />
-                    </pre>
-                  </div>
+                  <CodeEditor
+                    filename={currentFile}
+                    value={fileTree[currentFile].file.contents}
+                    onChange={updateFileContents}
+                  />
                 ) : (
                   <div className="grid flex-1 place-items-center text-sm text-zinc-500">
                     Select a file from the tree.

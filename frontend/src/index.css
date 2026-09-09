@@ -105,7 +105,13 @@ body {
   background: transparent;
 }
 
-.workspace-shell {
+.nexora-editor textarea,
+.nexora-editor pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  tab-size: 2;
+}
   height: 100vh;
   height: 100dvh;
   overflow: hidden;

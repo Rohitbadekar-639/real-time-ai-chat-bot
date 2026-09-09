@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { clipAiPrompt, isTrivialAiPrompt } from "./ai-guard.js";
 
 const SYSTEM_INSTRUCTION = `You are an expert full-stack engineer inside Nexora, a live coding room.
 
@@ -91,7 +92,8 @@ async function generateWithOpenAI(prompt) {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const completion = await openai.chat.completions.create({
     model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-    temperature: 0.4,
+    temperature: 0.3,
+    max_tokens: 2800,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: SYSTEM_INSTRUCTION },
@@ -101,6 +103,8 @@ async function generateWithOpenAI(prompt) {
 
   return toPayload(completion.choices[0]?.message?.content);
 }
+
+let geminiModelCache = { at: 0, names: [] };
 
 async function listGeminiModels(apiKey) {
   const urls = [
@@ -128,6 +132,17 @@ async function listGeminiModels(apiKey) {
   return [];
 }
 
+async function cachedGeminiModels(apiKey) {
+  if (Date.now() - geminiModelCache.at < 10 * 60 * 1000 && geminiModelCache.names.length) {
+    return geminiModelCache.names;
+  }
+  const names = await listGeminiModels(apiKey);
+  if (names.length) {
+    geminiModelCache = { at: Date.now(), names };
+  }
+  return names;
+}
+
 function pickGeminiModels(available) {
   const preferred = GEMINI_MODELS.filter((name) => available.includes(name));
   const flash = available.filter((name) => /flash/i.test(name) && !preferred.includes(name));
@@ -140,7 +155,8 @@ async function generateWithGemini(prompt, modelName, apiKey) {
     systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     generationConfig: {
-      temperature: 0.4,
+      temperature: 0.3,
+      maxOutputTokens: 2800,
       responseMimeType: "application/json",
     },
   };
@@ -188,18 +204,27 @@ function friendlyAiError(err) {
 }
 
 export const generateResult = async (prompt) => {
-  if (!prompt || !String(prompt).trim()) {
+  const clipped = clipAiPrompt(prompt);
+  if (!clipped) {
     return JSON.stringify({ text: "Please send a prompt after @ai." });
+  }
+  if (isTrivialAiPrompt(clipped)) {
+    return JSON.stringify({
+      text: "Add a coding task after @ai, or tap a starter in the room. Short greetings do not call the model.",
+    });
   }
 
   const errors = [];
 
   if (process.env.OPENAI_API_KEY) {
     try {
-      return await generateWithOpenAI(prompt);
+      return await generateWithOpenAI(clipped);
     } catch (error) {
       console.error("OpenAI generation failed:", error.message);
       errors.push(error);
+      if (/quota|insufficient|billing/i.test(error.message || "")) {
+        // Skip extra OpenAI retries; Gemini is the fallback if configured.
+      }
     }
   }
 
@@ -207,18 +232,17 @@ export const generateResult = async (prompt) => {
     const apiKey = process.env.GOOGLE_AI_KEY;
     let modelNames = GEMINI_MODELS;
     try {
-      const available = await listGeminiModels(apiKey);
+      const available = await cachedGeminiModels(apiKey);
       if (available.length) {
         modelNames = pickGeminiModels(available);
-        console.log("Gemini models available:", modelNames.slice(0, 8).join(", "));
       }
     } catch (error) {
       console.error("Could not list Gemini models:", error.message);
     }
 
-    for (const modelName of modelNames.slice(0, 6)) {
+    for (const modelName of modelNames.slice(0, 3)) {
       try {
-        return await generateWithGemini(prompt, modelName, apiKey);
+        return await generateWithGemini(clipped, modelName, apiKey);
       } catch (error) {
         console.error(`Gemini ${modelName} failed:`, error.message);
         errors.push(error);

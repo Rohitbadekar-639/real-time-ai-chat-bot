@@ -1,40 +1,86 @@
-# Nexora — Real-Time AI Coding Rooms
+# Nexora — Live AI coding rooms
 
-Live app: [https://realaichatbotapp.vercel.app](https://realaichatbotapp.vercel.app)
+**Live demo:** [https://nexora-coding.vercel.app](https://nexora-coding.vercel.app)  
+**API:** [https://real-time-ai-powered-chat-app-with-mern.onrender.com](https://real-time-ai-powered-chat-app-with-mern.onrender.com)
 
-API: [https://real-time-ai-powered-chat-app-with-mern.onrender.com](https://real-time-ai-powered-chat-app-with-mern.onrender.com)
+Nexora is a MERN product I built and deployed: WhatsApp-style rooms (solo, 1:1, or group), Socket.IO chat, an in-room editor, `@ai` file generation, and Node running in the browser via WebContainers.
 
-Nexora is a **MERN** workspace for live collaboration. Teams open a room, chat over **Socket.IO**, ask **@ai** to generate a file tree, edit the code, and run it in the browser with **WebContainers**.
+It is a **shared coding room**, not a chatbot wrapper. I use it as the main full-stack + GenAI piece on my resume.
 
-This is not a generic chatbot clone. The product is a **shared coding room** with an AI pair programmer.
+> First load: wait until the pill says **Live**. The API is on Render’s free tier and sleeps when idle. Signup/login will fail if you click before that.
 
 ---
 
-## What you can do
+## Demo (what to click)
 
-- Create an account (JWT + bcrypt) and stay signed in across refresh
-- Create named project rooms and add collaborators
-- Chat in real time; messages are stored in MongoDB
-- Mention `@ai` to generate an explanation plus a runnable file tree
-- Edit files in the room and persist the tree
-- Run generated Node apps in the browser (Chromium)
+1. Wait for **Live**.
+2. Create an account (or sign in).
+3. **New group room** or **Message someone**.
+4. Tap **Express homepage** (or type `@ai create an Express homepage…`).
+5. Open a file, change a line, press **Run** in **Chrome on desktop**.
+6. Optional: attach a small image in chat, or Invite another account.
 
-## Stack
+Chrome is required for **Run**. Chat, files, and `@ai` still work in other browsers.
 
-| Layer | Tech |
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+  Browser["React + Vite<br/>Vercel"]
+  API["Express + Socket.IO<br/>Render"]
+  DB[(MongoDB Atlas)]
+  AI["OpenAI gpt-4o-mini<br/>Gemini fallback"]
+  WC["WebContainers<br/>in the browser"]
+
+  Browser -->|REST JWT| API
+  Browser -->|Socket.IO| API
+  API --> DB
+  API -->|"@ai only"| AI
+  Browser --> WC
+```
+
+| Layer | Choice |
 | --- | --- |
 | Frontend | React, Vite, Tailwind, Socket.IO client, WebContainers |
 | Backend | Node.js, Express, Socket.IO |
 | Database | MongoDB Atlas (Mongoose) |
-| Auth | JWT, bcrypt, optional Redis token blacklist |
-| AI | OpenAI (`gpt-4o-mini`) with Gemini fallback |
-| Deploy | Vercel (frontend) · Render (API) |
+| Auth | JWT + bcrypt (optional Redis logout blacklist) |
+| AI | OpenAI `gpt-4o-mini`, Gemini only if OpenAI fails |
+| Hosting | Vercel (UI) · Render (API) |
+
+`OPENAI_API_KEY` lives only on Render. It is not in the frontend, GitHub, or `.env.example`.
+
+---
+
+## What I built
+
+I designed and shipped the product loop myself (auth → rooms → live chat → `@ai` → editor → Run), then hardened it for a public URL: CORS, Mongo reconnect, invite list refresh, mobile room tabs, `@ai` rate limits, and deploy.
+
+Libraries I did **not** invent: Express, Mongoose, Socket.IO, OpenAI SDK, WebContainers, Highlight.js. The wiring, room model, UI, and production fixes are mine.
+
+**Honest limits (fine to ask in an interview):**
+
+- File sync is **last-write-wins**, not OT / CRDT. Two people editing the same line can overwrite.
+- `@ai` is capped (8 calls / 15 min per account). Greetings like `@ai hi` do not hit the model.
+- Images in chat are small (JPG/PNG/WebP/GIF, under 500 KB) and stored on the message document.
+- Render cold start is real. The Live pill is there on purpose.
+
+---
+
+## AI usage (why it does not burn a $5 key)
+
+- The old public `GET /ai/get-result?prompt=` route is gone. Generation only runs from an authenticated room socket (or an authenticated POST).
+- Output is capped (`max_tokens` / `maxOutputTokens`).
+- Prompts are clipped. Duplicate in-flight jobs per user are dropped.
+- Gemini model listing is cached so a fallback does not list models on every request.
 
 ---
 
 ## Local setup
 
-### Backend
+**API**
 
 ```bash
 cd backend
@@ -43,20 +89,9 @@ cp .env.example .env
 npm run dev
 ```
 
-Required in `backend/.env`:
+`backend/.env`: `MONGO_URI`, `JWT_SECRET`, `CLIENT_URL=http://localhost:5173`, `OPENAI_API_KEY`.
 
-```bash
-MONGO_URI=your_mongodb_atlas_uri
-JWT_SECRET=long_random_string
-CLIENT_URL=http://localhost:5173
-OPENAI_API_KEY=sk-your-key
-```
-
-Put **`OPENAI_API_KEY` only on the server** (local `.env` and Render → Environment). Never add it to the frontend or to GitHub.
-
-Optional: `GOOGLE_AI_KEY` is used only if OpenAI is not set.
-
-### Frontend
+**UI**
 
 ```bash
 cd frontend
@@ -65,54 +100,24 @@ cp .env.example .env
 npm run dev
 ```
 
-`frontend/.env`:
-
-```bash
-VITE_API_URL=http://localhost:3000
-```
-
+`frontend/.env`: `VITE_API_URL=http://localhost:3000`  
 Open [http://localhost:5173](http://localhost:5173).
 
 ---
 
-## Production checklist
+## Production
 
-These are the settings that make the public link work for recruiters:
-
-1. **Render → Environment**
-   - `MONGO_URI`
-   - `JWT_SECRET`
-   - `CLIENT_URL=https://realaichatbotapp.vercel.app`
-   - `OPENAI_API_KEY`
-   - `OPENAI_MODEL=gpt-4o-mini` (optional)
-2. **MongoDB Atlas → Network Access**  
-   Allow `0.0.0.0/0` so Render can connect. If the cluster is paused, resume it.
-3. **Vercel → Environment**
-   - `VITE_API_URL=https://real-time-ai-powered-chat-app-with-mern.onrender.com`
-4. Render free tier sleeps after idle time. The landing page pings `/health` and shows **Waking server…** then **Live**. Wait for Live before signing in.
+1. **Render:** `MONGO_URI`, `JWT_SECRET`, `CLIENT_URL=https://nexora-coding.vercel.app`, `OPENAI_API_KEY`
+2. **Atlas:** allow Render (`0.0.0.0/0` is fine for a demo). Resume the cluster if it paused.
+3. **Vercel:** `VITE_API_URL` = the Render URL
 
 ---
 
-## How AI is wired
-
-1. A user sends a chat message containing `@ai`
-2. The Socket.IO server calls `backend/services/ai.service.js`
-3. OpenAI (or Gemini) returns JSON: `{ text, fileTree, buildCommand, startCommand }`
-4. The room shows the text and mounts the file tree in the editor
-
-That contract is unchanged from the original app, so the Run / editor flow still works.
-
----
-
-## Project layout
+## Layout
 
 ```
-backend/     Express API + Socket.IO
-frontend/    Vite React app
+backend/    Express API + Socket.IO
+frontend/   Vite React app
 ```
-
----
-
-## License
 
 MIT
